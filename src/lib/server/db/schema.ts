@@ -1,41 +1,38 @@
-import { mysqlTable, serial, varchar, int, datetime, json } from 'drizzle-orm/mysql-core';
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
 
-export const classes = mysqlTable('classes', {
-	id: serial('id').primaryKey(),
-	name: varchar('name', { length: 255 }).notNull()
+export const classes = sqliteTable('classes', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	name: text('name').notNull()
 });
 
-export const students = mysqlTable('students', {
-	id: serial('id').primaryKey(),
-	firstName: varchar('first_name', { length: 255 }).notNull(),
-	lastName: varchar('last_name', { length: 255 }).notNull(),
-	classId: int('class_id').references(() => classes.id),
-	groupingHistory: json('grouping_history').$type<Array<{
-		groupmateId: number;
-		timestamp: string;
-		groupId: number;
-	}>>().default([]),
-	nonStandardGroupings: int('non_standard_groupings').default(0),
+export const students = sqliteTable('students', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	firstName: text('first_name').notNull(),
+	lastName: text('last_name').notNull(),
+	classId: integer('class_id'),
+	groupingHistory: text('grouping_history').default('[]'),
+	nonStandardGroupings: integer('non_standard_groupings').default(0)
 });
 
-export const studyGroups = mysqlTable('study_groups', {
-	id: serial('id').primaryKey(),
-	name: varchar('name', { length: 255 }),
-	classId: int('class_id').references(() => classes.id),
-	createdAt: datetime('created_at').notNull()
+export const studyGroups = sqliteTable('study_groups', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	name: text('name'),
+	classId: integer('class_id'),
+	createdAt: text('created_at').notNull()
 });
 
-export const groupAssignments = mysqlTable('group_assignments', {
-	id: serial('id').primaryKey(),
-	groupId: int('group_id').references(() => studyGroups.id),
-	studentId: int('student_id').references(() => students.id),
-	date: datetime('date').notNull()
+export const groupAssignments = sqliteTable('group_assignments', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	groupId: integer('group_id'),
+	studentId: integer('student_id'),
+	date: text('date').notNull()
 });
 
-export const pairingMatrix = mysqlTable('pairing_matrix', {
-	studentId1: int('student_id_1').references(() => students.id).notNull(),
-	studentId2: int('student_id_2').references(() => students.id).notNull(),
-	classId: int('class_id').references(() => classes.id).notNull(),
-	pairCount: int('pair_count').notNull().default(0),
-	lastPaired: datetime('last_paired'),
+export const pairingMatrix = sqliteTable('pairing_matrix', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	studentId1: integer('student_id_1').notNull(),
+	studentId2: integer('student_id_2').notNull(),
+	classId: integer('class_id').notNull(),
+	pairCount: integer('pair_count').notNull().default(0),
+	lastPaired: text('last_paired')
 });

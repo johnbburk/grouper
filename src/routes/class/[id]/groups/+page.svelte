@@ -247,8 +247,23 @@
   // Add this to track all student placements
   let studentPlacements = new Map<number, number>(); // studentId -> groupIndex
 
-  // Update the handleDndConsider function
-  async function handleDndConsider(e: CustomEvent<{ items: Array<any> }>, targetGroupIndex: number) {
+  // Add these interfaces at the top of the script section
+  interface DndStudent {
+    id: number;
+    firstName: string;
+    lastName: string;
+    uniqueId: string;
+  }
+
+  interface DndEvent {
+    items: DndStudent[];
+    info?: {
+      id: string;
+    };
+  }
+
+  // Update the handlers with proper types
+  async function handleDndConsider(e: CustomEvent<DndEvent>, targetGroupIndex: number) {
     // If this is the first consider event of a drag, set up tracking
     if (dragSourceGroupIndex === null) {
       dragSourceGroupIndex = targetGroupIndex;
@@ -319,7 +334,7 @@
   }
 
   // Update the handleDndFinalize function
-  async function handleDndFinalize(e: CustomEvent<{ items: Array<any> }>, targetGroupIndex: number) {
+  async function handleDndFinalize(e: CustomEvent<DndEvent>, targetGroupIndex: number) {
     // If we're finalizing in the same group we started in, restore the original state
     if (dragSourceGroupIndex === targetGroupIndex && originalGroupState) {
       currentGroups = originalGroupState;
@@ -483,10 +498,11 @@
       <div class="space-y-4">
         <div class="flex gap-4 items-center">
           <div class="w-48">
-            <label class="block text-sm font-medium text-gray-700 mb-1">
+            <label for="group-size" class="block text-sm font-medium text-gray-700 mb-1">
               Students per Group
             </label>
             <input 
+              id="group-size"
               type="number" 
               bind:value={groupSize}
               min="2"

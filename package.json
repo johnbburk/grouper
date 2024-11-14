@@ -15,12 +15,11 @@
 		"test:e2e": "playwright test",
 		"db:start": "docker compose up",
 		"db:push": "drizzle-kit push",
-		"db:migrate": "drizzle-kit migrate",
+		"db:migrate": "tsx src/lib/server/db/migrate.ts",
 		"db:studio": "drizzle-kit studio",
 		"migrate": "node -r dotenv/config --loader ts-node/esm src/lib/server/db/migrations/run-migrations.ts",
 		"migrate:run": "tsx scripts/migrate.ts",
-		"migrate:pairing": "tsx scripts/run-migration.ts",
-		"db:migrate": "tsx src/lib/server/db/migrate.ts"
+		"migrate:pairing": "tsx scripts/run-migration.ts"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.45.3",
@@ -31,6 +30,7 @@
 		"@tailwindcss/container-queries": "^0.1.1",
 		"@tailwindcss/forms": "^0.5.9",
 		"@tailwindcss/typography": "^0.5.15",
+		"@types/better-sqlite3": "^7.6.11",
 		"@types/eslint": "^9.6.0",
 		"autoprefixer": "^10.4.20",
 		"drizzle-kit": "^0.22.0",
@@ -51,13 +51,11 @@
 		"vitest": "^2.0.4"
 	},
 	"dependencies": {
-		"@node-rs/argon2": "^1.1.0",
-		"@oslojs/crypto": "^1.0.1",
-		"@oslojs/encoding": "^1.1.0",
-		"@types/node": "^22.9.0",
+		"@libsql/client": "^0.5.0",
+		"better-sqlite3": "^9.0.0",
 		"dotenv": "^16.4.5",
-		"drizzle-orm": "^0.33.0",
-		"mysql2": "^3.11.4",
+		"drizzle-kit": "^0.20.0",
+		"drizzle-orm": "^0.29.0",
 		"svelte-dnd-action": "^0.9.52"
 	}
 }

@@ -1,18 +1,7 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { mkdirSync } from 'fs';
+import { sql } from 'drizzle-orm';
 
-// Create data directory if it doesn't exist
-mkdirSync('data', { recursive: true });
-
-async function main() {
-      const sqlite = new Database('data/grouper.db');
-      const db = drizzle(sqlite);
-
-      console.log('Creating tables...');
-
-      // Create tables directly
-      sqlite.exec(`
+export async function up(db: any) {
+      await db.execute(sql`
     PRAGMA foreign_keys = ON;
 
     CREATE TABLE IF NOT EXISTS classes (
@@ -55,13 +44,18 @@ async function main() {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_pairing_matrix_unique 
     ON pairing_matrix(student_id_1, student_id_2, class_id);
   `);
-
-      console.log('Tables created successfully!');
-      sqlite.close();
 }
 
-main().catch((err) => {
-      console.error('Migration failed!');
-      console.error(err);
-      process.exit(1);
-}); 
+export async function down(db: any) {
+      await db.execute(sql`
+    PRAGMA foreign_keys = OFF;
+    
+    DROP TABLE IF EXISTS pairing_matrix;
+    DROP TABLE IF EXISTS group_assignments;
+    DROP TABLE IF EXISTS study_groups;
+    DROP TABLE IF EXISTS students;
+    DROP TABLE IF EXISTS classes;
+    
+    PRAGMA foreign_keys = ON;
+  `);
+} 

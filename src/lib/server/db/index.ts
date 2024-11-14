@@ -1,24 +1,15 @@
-import { drizzle } from 'drizzle-orm/mysql2';
-import mysql from 'mysql2/promise';
-import { classes, students, studyGroups, groupAssignments } from './schema';
-import { eq } from 'drizzle-orm';
-import * as dotenv from 'dotenv';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { classes, students, studyGroups, groupAssignments, pairingMatrix } from './schema';
+import { eq, and, inArray, sql } from 'drizzle-orm';
+import { mkdirSync } from 'fs';
 
-// Load environment variables
-dotenv.config();
+// Create data directory if it doesn't exist
+mkdirSync('data', { recursive: true });
 
-// Export the pool connection for migrations
-export const poolConnection = mysql.createPool({
-      host: process.env.DATABASE_HOST,
-      user: process.env.DATABASE_USERNAME,
-      password: process.env.DATABASE_PASSWORD,
-      database: process.env.DATABASE_NAME,
-      socketPath: process.env.DATABASE_SOCKET,
-      // Only use port if not using socket
-      ...(process.env.DATABASE_SOCKET ? {} : { port: parseInt(process.env.DATABASE_PORT || '3306') })
-});
-
-export const db = drizzle(poolConnection);
+// Connect to SQLite database
+const sqlite = new Database('data/grouper.db');
+export const db = drizzle(sqlite);
 
 // Class operations
 export async function addClass(name: string) {
@@ -74,66 +65,68 @@ export async function createGroups(
       studentIds: number[]
 ) {
       try {
-            // Get pairing matrix for these students with a more precise query
-            const [pairings] = await poolConnection.query(
-                  `SELECT student_id_1, student_id_2, pair_count 
-            FROM pairing_matrix 
-            WHERE class_id = ? 
-            AND (
-                (student_id_1 IN (?) AND student_id_2 IN (?))
-                OR 
-                (student_id_2 IN (?) AND student_id_1 IN (?))
-            )`,
-                  [classId, studentIds, studentIds, studentIds, studentIds]
-            ) as [Array<{ student_id_1: number; student_id_2: number; pair_count: number }>, any];
+            // Get pairing matrix using drizzle query builder
+            const pairings = await db
+                  .select()
+                  .from(pairingMatrix)
+                  .where(
+                        and(
+                              eq(pairingMatrix.classId, classId),
+                              inArray(pairingMatrix.studentId1, studentIds),
+                              inArray(pairingMatrix.studentId2, studentIds)
+                        )
+                  );
 
-            // Build cost matrix for quick lookups (handle both directions)
+            // Build cost matrix for quick lookups
             const pairMatrix = new Map<string, number>();
             pairings.forEach(pair => {
-                  // Store both directions and normalized key
-                  const [id1, id2] = [pair.student_id_1, pair.student_id_2].sort((a, b) => a - b);
+                  const [id1, id2] = [pair.studentId1, pair.studentId2].sort((a, b) => a - b);
                   const key = `${id1}-${id2}`;
-                  pairMatrix.set(key, pair.pair_count);
+                  pairMatrix.set(key, pair.pairCount);
             });
 
             // Get student details
-            const [students] = await poolConnection.query(
-                  'SELECT id, first_name, last_name FROM students WHERE id IN (?)',
-                  [studentIds]
-            ) as [Array<{ id: number; first_name: string; last_name: string }>, any];
+            const studentDetails = await db
+                  .select()
+                  .from(students)
+                  .where(inArray(students.id, studentIds));
 
-            const studentMap = new Map(students.map(s => [s.id, s]));
+            const studentMap = new Map(
+                  studentDetails.map(s => [s.id, { firstName: s.firstName, lastName: s.lastName }])
+            );
 
             // Create groups
             const numGroups = Math.ceil(studentIds.length / groupSize);
             const groups = [];
 
             // Distribute students into groups
-            let currentIndex = 0;
             const shuffledIds = [...studentIds].sort(() => Math.random() - 0.5);
 
             for (let i = 0; i < numGroups; i++) {
                   const groupStudents = shuffledIds
-                        .slice(i * groupSize, (i + 1) * groupSize)
+                        .slice(i * groupSize, Math.min((i + 1) * groupSize, shuffledIds.length))
                         .map(id => ({
                               id,
-                              firstName: studentMap.get(id)!.first_name,
-                              lastName: studentMap.get(id)!.last_name
+                              firstName: studentMap.get(id)!.firstName,
+                              lastName: studentMap.get(id)!.lastName
                         }));
 
-                  const [groupResult] = await poolConnection.query(
-                        'INSERT INTO study_groups (name, class_id, created_at) VALUES (?, ?, NOW())',
-                        [`Group ${i + 1}`, classId]
-                  ) as [mysql.ResultSetHeader, any];
+                  const result = await db
+                        .insert(studyGroups)
+                        .values({
+                              name: `Group ${i + 1}`,
+                              classId,
+                              createdAt: new Date().toISOString()
+                        })
+                        .returning({ insertId: studyGroups.id });
 
                   groups.push({
-                        id: groupResult.insertId,
+                        id: result[0].insertId,
                         name: `Group ${i + 1}`,
                         students: groupStudents
                   });
             }
 
-            // Return both the groups and the pair matrix
             return { groups, pairMatrix };
       } catch (error) {
             console.error('Error creating groups:', error);
@@ -165,10 +158,11 @@ export async function saveGroups(
                   // For each student in the group
                   for (const student of group.students) {
                         // Get their current grouping history
-                        const [historyResult] = await poolConnection.query(
-                              'SELECT COALESCE(grouping_history, "[]") as grouping_history FROM students WHERE id = ?',
-                              [student.id]
-                        ) as [Array<{ grouping_history: string }>, any];
+                        const historyResult = await db
+                              .select({ groupingHistory: students.groupingHistory })
+                              .from(students)
+                              .where(eq(students.id, student.id))
+                              .execute();
 
                         // Get all other students in this group
                         const groupmates = group.students.filter(s => s.id !== student.id);
@@ -176,7 +170,8 @@ export async function saveGroups(
                         // Parse current history with error handling
                         let currentHistory = [];
                         try {
-                              currentHistory = JSON.parse(historyResult[0]?.grouping_history || '[]');
+                              const rawHistory = historyResult[0]?.groupingHistory;
+                              currentHistory = typeof rawHistory === 'string' ? JSON.parse(rawHistory) : (rawHistory || []);
                         } catch (error) {
                               console.error('Error parsing history for student', student.id, error);
                               currentHistory = [];
@@ -193,21 +188,25 @@ export async function saveGroups(
                         ];
 
                         // Update the student's history
-                        await poolConnection.query(
-                              'UPDATE students SET grouping_history = ? WHERE id = ?',
-                              [JSON.stringify(updatedHistory), student.id]
-                        );
+                        await db
+                              .update(students)
+                              .set({ groupingHistory: JSON.stringify(updatedHistory) })
+                              .where(eq(students.id, student.id))
+                              .execute();
                   }
 
-                  // Save the group assignment
-                  await poolConnection.query(
-                        'INSERT INTO group_assignments (group_id, student_id, date) VALUES ?',
-                        [group.students.map(student => [group.id, student.id, new Date()])]
-                  );
+                  // Save the group assignments
+                  await db
+                        .insert(groupAssignments)
+                        .values(
+                              group.students.map(student => ({
+                                    groupId: group.id,
+                                    studentId: student.id,
+                                    date: new Date().toISOString()
+                              }))
+                        )
+                        .execute();
             }
-
-            // Display the updated matrix
-            await displayPairingMatrix(classId);
 
             return { success: true };
       } catch (error) {
@@ -218,7 +217,7 @@ export async function saveGroups(
 
 // Add this function to get grouping history for a student
 export async function getStudentGroupingHistory(studentId: number) {
-      const [result] = await poolConnection.query(
+      const [result] = await db.query(
             'SELECT grouping_history FROM students WHERE id = ?',
             [studentId]
       ) as [Array<{ grouping_history: string }>, any];
@@ -242,52 +241,52 @@ export async function deleteStudent(studentId: number) {
 export async function getStudentHistory(studentId: number, classId: number) {
       try {
             // Get student's non-standard groupings count
-            const [nonStandardResult] = await poolConnection.query(
-                  'SELECT non_standard_groupings FROM students WHERE id = ?',
-                  [studentId]
-            ) as [Array<{ non_standard_groupings: number }>, any];
+            const nonStandardResult = await db
+                  .select({ nonStandardGroupings: students.nonStandardGroupings })
+                  .from(students)
+                  .where(eq(students.id, studentId))
+                  .execute();
 
             // Get all students in the class
-            const [classmates] = await poolConnection.query(
-                  'SELECT id, first_name, last_name FROM students WHERE class_id = ? AND id != ?',
-                  [classId, studentId]
-            ) as [Array<{ id: number; first_name: string; last_name: string }>, any];
+            const classmates = await db
+                  .select({
+                        id: students.id,
+                        firstName: students.firstName,
+                        lastName: students.lastName
+                  })
+                  .from(students)
+                  .where(
+                        and(
+                              eq(students.classId, classId),
+                              sql`${students.id} != ${studentId}`
+                        )
+                  )
+                  .execute();
 
             // Get student's grouping history
-            const [historyResult] = await poolConnection.query(
-                  'SELECT grouping_history FROM students WHERE id = ?',
-                  [studentId]
-            ) as [Array<{ grouping_history: any }>, any];
+            const historyResult = await db
+                  .select({ groupingHistory: students.groupingHistory })
+                  .from(students)
+                  .where(eq(students.id, studentId))
+                  .execute();
 
-            // Parse history and get set of all previous groupmate IDs
-            let history: Array<{ groupmateId: number }> = [];
+            // Parse history
+            let history = [];
             try {
-                  // Handle both string and object cases
-                  const rawHistory = historyResult[0]?.grouping_history;
-                  if (typeof rawHistory === 'string') {
-                        history = JSON.parse(rawHistory);
-                  } else if (Array.isArray(rawHistory)) {
-                        history = rawHistory;
-                  } else if (rawHistory === null) {
-                        history = [];
-                  } else {
-                        console.warn('Unexpected grouping_history format:', rawHistory);
-                        history = [];
-                  }
+                  const rawHistory = historyResult[0]?.groupingHistory;
+                  history = typeof rawHistory === 'string' ? JSON.parse(rawHistory) : (rawHistory || []);
             } catch (error) {
-                  console.error('Error parsing grouping history:', error);
+                  console.error('Error parsing history:', error);
                   history = [];
             }
 
             // Create a Set of previous groupmate IDs
-            const previousGroupmates = new Set(
-                  history.map((entry: { groupmateId: number }) => entry.groupmateId)
-            );
+            const previousGroupmates = new Set(history.map((entry: { groupmateId: number }) => entry.groupmateId));
 
             // Count groupings with each groupmate
             const groupingCounts = new Map<number, number>();
             history.forEach((entry: { groupmateId: number }) => {
-                  if (entry && typeof entry.groupmateId === 'number') {
+                  if (entry?.groupmateId) {
                         groupingCounts.set(
                               entry.groupmateId,
                               (groupingCounts.get(entry.groupmateId) || 0) + 1
@@ -296,33 +295,28 @@ export async function getStudentHistory(studentId: number, classId: number) {
             });
 
             // Get all groups this student has been in
-            const [groupHistory] = await poolConnection.query(`
-            SELECT 
-                g.id as group_id,
-                g.name as group_name,
-                g.created_at,
-                GROUP_CONCAT(DISTINCT CONCAT(s.first_name, ' ', s.last_name)) as group_members
-            FROM group_assignments ga
-            JOIN study_groups g ON ga.group_id = g.id
-            JOIN group_assignments ga2 ON g.id = ga2.group_id
-            JOIN students s ON ga2.student_id = s.id
-            WHERE ga.student_id = ?
-            GROUP BY g.id, g.name, g.created_at
-            ORDER BY g.created_at DESC
-        `, [studentId]) as [Array<{
-                  group_id: number;
-                  group_name: string;
-                  created_at: Date;
-                  group_members: string;
-            }>, any];
+            const groupHistory = await db
+                  .select({
+                        groupId: studyGroups.id,
+                        groupName: studyGroups.name,
+                        createdAt: studyGroups.createdAt,
+                        members: sql<string>`GROUP_CONCAT(DISTINCT ${students.firstName} || ' ' || ${students.lastName})`
+                  })
+                  .from(groupAssignments)
+                  .innerJoin(studyGroups, eq(groupAssignments.groupId, studyGroups.id))
+                  .innerJoin(students, eq(groupAssignments.studentId, students.id))
+                  .where(eq(groupAssignments.studentId, studentId))
+                  .groupBy(studyGroups.id, studyGroups.name, studyGroups.createdAt)
+                  .orderBy(studyGroups.createdAt)
+                  .execute();
 
             // Filter and sort students
             const neverGrouped = classmates
                   .filter(c => !previousGroupmates.has(c.id))
                   .map(c => ({
                         id: c.id,
-                        firstName: c.first_name,
-                        lastName: c.last_name,
+                        firstName: c.firstName,
+                        lastName: c.lastName,
                         groupCount: 0
                   }))
                   .sort((a, b) => `${a.lastName}, ${a.firstName}`.localeCompare(`${b.lastName}, ${b.firstName}`));
@@ -331,8 +325,8 @@ export async function getStudentHistory(studentId: number, classId: number) {
                   .filter(c => previousGroupmates.has(c.id))
                   .map(c => ({
                         id: c.id,
-                        firstName: c.first_name,
-                        lastName: c.last_name,
+                        firstName: c.firstName,
+                        lastName: c.lastName,
                         groupCount: groupingCounts.get(c.id) || 0
                   }))
                   .sort((a, b) => a.groupCount - b.groupCount);
@@ -340,13 +334,13 @@ export async function getStudentHistory(studentId: number, classId: number) {
             return {
                   neverGrouped,
                   groupedStudents,
-                  groupHistory: (groupHistory || []).map(g => ({
-                        id: g.group_id,
-                        name: g.group_name,
-                        date: g.created_at,
-                        members: (g.group_members || '').split('|').filter(Boolean)
+                  groupHistory: groupHistory.map(g => ({
+                        id: g.groupId,
+                        name: g.groupName,
+                        date: g.createdAt,
+                        members: g.members?.split(',').filter(Boolean) || []
                   })),
-                  nonStandardGroupings: nonStandardResult[0]?.non_standard_groupings ?? 0
+                  nonStandardGroupings: nonStandardResult[0]?.nonStandardGroupings ?? 0
             };
       } catch (error) {
             console.error('Error getting student history:', error);
@@ -358,16 +352,16 @@ export async function getStudentHistory(studentId: number, classId: number) {
 export async function clearDatabase() {
       try {
             // Disable foreign key checks temporarily
-            await poolConnection.query('SET FOREIGN_KEY_CHECKS=0');
+            await db.query('SET FOREIGN_KEY_CHECKS=0');
 
             // Clear all tables
-            await poolConnection.query('TRUNCATE TABLE group_assignments');
-            await poolConnection.query('TRUNCATE TABLE study_groups');
-            await poolConnection.query('TRUNCATE TABLE students');
-            await poolConnection.query('TRUNCATE TABLE classes');
+            await db.query('TRUNCATE TABLE group_assignments');
+            await db.query('TRUNCATE TABLE study_groups');
+            await db.query('TRUNCATE TABLE students');
+            await db.query('TRUNCATE TABLE classes');
 
             // Re-enable foreign key checks
-            await poolConnection.query('SET FOREIGN_KEY_CHECKS=1');
+            await db.query('SET FOREIGN_KEY_CHECKS=1');
 
             return { success: true };
       } catch (error) {
@@ -386,13 +380,13 @@ interface PairingData {
 async function displayPairingMatrix(classId: number) {
       try {
             // Get all students in the class
-            const [students] = await poolConnection.query(
+            const [students] = await db.query(
                   'SELECT id, first_name, last_name FROM students WHERE class_id = ? ORDER BY last_name, first_name',
                   [classId]
             ) as [Array<{ id: number; first_name: string; last_name: string }>, any];
 
             // Get all pairings
-            const [pairings] = await poolConnection.query(
+            const [pairings] = await db.query(
                   'SELECT student_id_1, student_id_2, pair_count FROM pairing_matrix WHERE class_id = ?',
                   [classId]
             ) as [Array<{ student_id_1: number; student_id_2: number; pair_count: number }>, any];
@@ -457,31 +451,31 @@ async function displayPairingMatrix(classId: number) {
 
 export async function updatePairingMatrix(classId: number, newGroups: Array<{ students: Array<{ id: number }> }>) {
       try {
-            // Process new groups first to collect all pairs
             for (const group of newGroups) {
-                  // Generate all pairs in this group
                   for (let i = 0; i < group.students.length; i++) {
                         for (let j = i + 1; j < group.students.length; j++) {
-                              // Always store with smaller ID first
                               const [id1, id2] = [group.students[i].id, group.students[j].id].sort((a, b) => a - b);
 
-                              // Insert or update the pair
-                              await poolConnection.query(`
-                                    INSERT INTO pairing_matrix (student_id_1, student_id_2, class_id, pair_count, last_paired)
-                                    VALUES (?, ?, ?, 1, NOW())
-                                    ON DUPLICATE KEY UPDATE 
-                                          pair_count = pair_count + 1,
-                                          last_paired = NOW()
-                              `, [id1, id2, classId]);
-
-                              console.log(`Updated pair ${id1}-${id2} in class ${classId}`);
+                              await db
+                                    .insert(pairingMatrix)
+                                    .values({
+                                          studentId1: id1,
+                                          studentId2: id2,
+                                          classId,
+                                          pairCount: 1,
+                                          lastPaired: new Date().toISOString()
+                                    })
+                                    .onConflictDoUpdate({
+                                          target: [pairingMatrix.studentId1, pairingMatrix.studentId2, pairingMatrix.classId],
+                                          set: {
+                                                pairCount: sql`${pairingMatrix.pairCount} + 1`,
+                                                lastPaired: new Date().toISOString()
+                                          }
+                                    })
+                                    .execute();
                         }
                   }
             }
-
-            // After all updates are done, display the matrix
-            await displayPairingMatrix(classId);
-
       } catch (error) {
             console.error('Error updating pairing matrix:', error);
             throw error;
@@ -491,37 +485,23 @@ export async function updatePairingMatrix(classId: number, newGroups: Array<{ st
 // Add this function to get pair count
 export async function getPairCount(classId: number, studentId1: number, studentId2: number): Promise<number> {
       try {
-            // Sort IDs to match how they're stored in the pairing_matrix
             const [id1, id2] = [studentId1, studentId2].sort((a, b) => a - b);
 
-            console.log(`\nGetting pair count for:
-                  Class ID: ${classId}
-                  Student 1 ID: ${id1}
-                  Student 2 ID: ${id2}`);
+            const result = await db
+                  .select({ pairCount: pairingMatrix.pairCount })
+                  .from(pairingMatrix)
+                  .where(
+                        and(
+                              eq(pairingMatrix.classId, classId),
+                              eq(pairingMatrix.studentId1, id1),
+                              eq(pairingMatrix.studentId2, id2)
+                        )
+                  )
+                  .execute();
 
-            const [result] = await poolConnection.query(
-                  `SELECT pair_count 
-                   FROM pairing_matrix 
-                   WHERE class_id = ? 
-                   AND student_id_1 = ? 
-                   AND student_id_2 = ?`,
-                  [classId, id1, id2]
-            ) as [Array<{ pair_count: number }>, any];
-
-            console.log('SQL Query result:', result);
-
-            // If no record exists, return 0
-            if (!result || result.length === 0) {
-                  console.log('No pairing record found, returning 0');
-                  return 0;
-            }
-
-            const pairCount = result[0]?.pair_count ?? 0;
-            console.log(`Found pair count: ${pairCount}`);
-            return pairCount;
+            return result[0]?.pairCount ?? 0;
       } catch (error) {
             console.error('Error getting pair count:', error);
-            console.error(error);
             return 0;
       }
 }
@@ -529,7 +509,7 @@ export async function getPairCount(classId: number, studentId1: number, studentI
 export async function getOptimalGroups(classId: number, studentIds: number[], groupSize: number) {
       try {
             // Get pairing matrix for these students
-            const [matrix] = await poolConnection.query(
+            const [matrix] = await db.query(
                   `SELECT student_id_1, student_id_2, pair_count, last_paired 
             FROM pairing_matrix 
             WHERE class_id = ? 

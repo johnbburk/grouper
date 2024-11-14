@@ -1,38 +1,22 @@
-# sv
+# Grouper
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A tool for creating optimized student groups based on pairing history.
 
-## Creating a project
+## Prerequisites
 
-If you're seeing this, you've probably already done this step. Congrats!
+- Node.js (v16 or higher)
+- MySQL (v8.0 or higher)
 
-```bash
-# create a new project in the current directory
-npx sv create
+## Setup Instructions
 
-# create a new project in my-app
-npx sv create my-app
-```
+1. Install MySQL:
+   - Mac: `brew install mysql`
+   - Windows: Download MySQL Installer from mysql.com
+   - Linux: `sudo apt install mysql-server`
 
-## Developing
+2. Start MySQL:
+   - Mac: `brew services start mysql`
+   - Windows: MySQL starts automatically as a service
+   - Linux: `sudo systemctl start mysql`
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```bash
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```bash
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+3. Create the database:
