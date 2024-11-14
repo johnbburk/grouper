@@ -1,14 +1,24 @@
-import { defineConfig } from 'drizzle-kit';
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not set');
+import type { Config } from 'drizzle-kit';
+import * as dotenv from 'dotenv';
+dotenv.config();
 
-export default defineConfig({
+const { DATABASE_HOST, DATABASE_USER, DATABASE_NAME } = process.env;
+
+if (!DATABASE_HOST || !DATABASE_USER || !DATABASE_NAME) {
+	throw new Error('Missing required database environment variables');
+}
+
+export default {
 	schema: './src/lib/server/db/schema.ts',
-
+	out: './drizzle/migrations',
+	dialect: 'mysql',
 	dbCredentials: {
-		url: process.env.DATABASE_URL
+		host: DATABASE_HOST,
+		user: DATABASE_USER,
+		database: DATABASE_NAME,
 	},
-
 	verbose: true,
 	strict: true,
-	dialect: 'mysql'
-});
+	breakpoints: true,
+	tablesOrder: ['classes', 'students', 'study_groups', 'group_assignments'],
+} satisfies Config;

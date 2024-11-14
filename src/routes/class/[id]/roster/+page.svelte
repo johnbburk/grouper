@@ -6,6 +6,7 @@
   export let data: PageData;
   let studentInput = '';
   let importing = false;
+  let deleting: number | null = null;
   
   async function handleImport() {
     if (!studentInput.trim()) return;
@@ -26,6 +27,30 @@
       }
     } finally {
       importing = false;
+    }
+  }
+
+  async function handleDelete(studentId: number) {
+    if (!confirm('Are you sure you want to delete this student?')) return;
+
+    deleting = studentId;
+    try {
+      const response = await fetch(
+        `/api/class/${$page.params.id}/students/${studentId}`,
+        { method: 'DELETE' }
+      );
+      
+      if (response.ok) {
+        await invalidateAll();
+      } else {
+        const error = await response.json();
+        alert(error.message || 'Failed to delete student');
+      }
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      alert('Failed to delete student');
+    } finally {
+      deleting = null;
     }
   }
 </script>
@@ -56,12 +81,13 @@
         <ul class="space-y-2">
           {#each data.students as student}
             <li class="flex items-center justify-between p-2 hover:bg-gray-50">
-              <span>{student.firstName} {student.lastName}</span>
+              <span>{student.lastName}, {student.firstName}</span>
               <button
-                class="text-red-500 hover:text-red-700"
-                on:click={() => {/* TODO: Handle delete */}}
+                class="text-red-500 hover:text-red-700 disabled:opacity-50"
+                on:click={() => handleDelete(student.id)}
+                disabled={deleting === student.id}
               >
-                Delete
+                {deleting === student.id ? 'Deleting...' : 'Delete'}
               </button>
             </li>
           {/each}
