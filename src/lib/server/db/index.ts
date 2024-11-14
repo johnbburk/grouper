@@ -1,7 +1,7 @@
 import { createClient } from '@libsql/client';
 import { drizzle } from 'drizzle-orm/libsql';
 import { classes, students, studyGroups, groupAssignments, pairingMatrix } from './schema';
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, sql, or } from 'drizzle-orm';
 import { mkdirSync } from 'fs';
 
 // Create data directory if it doesn't exist
@@ -14,6 +14,12 @@ const client = createClient({
 });
 
 export const db = drizzle(client);
+
+// Add this helper function for raw SQL queries
+async function rawQuery<T>(query: string, params: any[] = []): Promise<T[]> {
+      const stmt = (db as any).driver.prepare(query);
+      return stmt.all(...params);
+}
 
 // Class operations
 export async function addClass(name: string) {
@@ -219,14 +225,15 @@ export async function saveGroups(
       }
 }
 
-// Add this function to get grouping history for a student
+// Update getStudentGroupingHistory to use drizzle's query builder
 export async function getStudentGroupingHistory(studentId: number) {
-      const [result] = await db.query(
-            'SELECT grouping_history FROM students WHERE id = ?',
-            [studentId]
-      ) as [Array<{ grouping_history: string }>, any];
+      const result = await db
+            .select({ groupingHistory: students.groupingHistory })
+            .from(students)
+            .where(eq(students.id, studentId))
+            .execute();
 
-      return JSON.parse(result[0]?.grouping_history || '[]');
+      return JSON.parse(result[0]?.groupingHistory || '[]');
 }
 
 // Add this new function
@@ -352,20 +359,17 @@ export async function getStudentHistory(studentId: number, classId: number) {
       }
 }
 
-// Add this new function
+// Update clearDatabase to use drizzle's query builder
 export async function clearDatabase() {
       try {
-            // Disable foreign key checks temporarily
-            await db.query('SET FOREIGN_KEY_CHECKS=0');
+            await rawQuery('PRAGMA foreign_keys = OFF');
 
-            // Clear all tables
-            await db.query('TRUNCATE TABLE group_assignments');
-            await db.query('TRUNCATE TABLE study_groups');
-            await db.query('TRUNCATE TABLE students');
-            await db.query('TRUNCATE TABLE classes');
+            await db.delete(groupAssignments);
+            await db.delete(studyGroups);
+            await db.delete(students);
+            await db.delete(classes);
 
-            // Re-enable foreign key checks
-            await db.query('SET FOREIGN_KEY_CHECKS=1');
+            await rawQuery('PRAGMA foreign_keys = ON');
 
             return { success: true };
       } catch (error) {
@@ -381,31 +385,41 @@ interface PairingData {
       lastPaired: Date | null;
 }
 
+// Update displayPairingMatrix to use drizzle's query builder
 async function displayPairingMatrix(classId: number) {
       try {
-            // Get all students in the class
-            const [students] = await db.query(
-                  'SELECT id, first_name, last_name FROM students WHERE class_id = ? ORDER BY last_name, first_name',
-                  [classId]
-            ) as [Array<{ id: number; first_name: string; last_name: string }>, any];
+            const studentList = await db
+                  .select({
+                        id: students.id,
+                        firstName: students.firstName,
+                        lastName: students.lastName
+                  })
+                  .from(students)
+                  .where(eq(students.classId, classId))
+                  .orderBy(students.lastName, students.firstName)
+                  .execute();
 
-            // Get all pairings
-            const [pairings] = await db.query(
-                  'SELECT student_id_1, student_id_2, pair_count FROM pairing_matrix WHERE class_id = ?',
-                  [classId]
-            ) as [Array<{ student_id_1: number; student_id_2: number; pair_count: number }>, any];
+            const pairings = await db
+                  .select({
+                        studentId1: pairingMatrix.studentId1,
+                        studentId2: pairingMatrix.studentId2,
+                        pairCount: pairingMatrix.pairCount
+                  })
+                  .from(pairingMatrix)
+                  .where(eq(pairingMatrix.classId, classId))
+                  .execute();
 
             // Create matrix
             const matrix = new Map<string, number>();
             pairings.forEach(pair => {
-                  const key1 = `${pair.student_id_1}-${pair.student_id_2}`;
-                  const key2 = `${pair.student_id_2}-${pair.student_id_1}`;
-                  matrix.set(key1, pair.pair_count);
-                  matrix.set(key2, pair.pair_count);
+                  const key1 = `${pair.studentId1}-${pair.studentId2}`;
+                  const key2 = `${pair.studentId2}-${pair.studentId1}`;
+                  matrix.set(key1, pair.pairCount);
+                  matrix.set(key2, pair.pairCount);
             });
 
             // Create student lookup
-            const studentMap = new Map(students.map(s => [s.id, `${s.last_name}, ${s.first_name}`]));
+            const studentMap = new Map(studentList.map(s => [s.id, `${s.lastName}, ${s.firstName}`]));
 
             // Print header
             console.log('\nPairing Matrix:');
@@ -413,20 +427,20 @@ async function displayPairingMatrix(classId: number) {
 
             // Print column headers (abbreviated names)
             process.stdout.write('              '); // Padding for row headers
-            students.forEach(s => {
-                  const abbrev = `${s.last_name.slice(0, 3)}${s.first_name[0]}`;
+            studentList.forEach(s => {
+                  const abbrev = `${s.lastName.slice(0, 3)}${s.firstName[0]}`;
                   process.stdout.write(abbrev.padEnd(6));
             });
             console.log('\n' + '─'.repeat(120));
 
             // Print each row
-            students.forEach(s1 => {
+            studentList.forEach(s1 => {
                   // Print row header (abbreviated name)
-                  const rowHeader = `${s1.last_name.slice(0, 3)}${s1.first_name[0]}`;
+                  const rowHeader = `${s1.lastName.slice(0, 3)}${s1.firstName[0]}`;
                   process.stdout.write(rowHeader.padEnd(14));
 
                   // Print matrix values
-                  students.forEach(s2 => {
+                  studentList.forEach(s2 => {
                         const key = `${s1.id}-${s2.id}`;
                         const value = matrix.get(key) || 0;
                         const display = s1.id === s2.id ? '─' : value.toString();
@@ -510,16 +524,27 @@ export async function getPairCount(classId: number, studentId1: number, studentI
       }
 }
 
+// Update getOptimalGroups to use drizzle's query builder
 export async function getOptimalGroups(classId: number, studentIds: number[], groupSize: number) {
       try {
-            // Get pairing matrix for these students
-            const [matrix] = await db.query(
-                  `SELECT student_id_1, student_id_2, pair_count, last_paired 
-            FROM pairing_matrix 
-            WHERE class_id = ? 
-            AND (student_id_1 IN (?) OR student_id_2 IN (?))`,
-                  [classId, studentIds, studentIds]
-            ) as [Array<PairingData>, any];
+            const matrix = await db
+                  .select({
+                        studentId1: pairingMatrix.studentId1,
+                        studentId2: pairingMatrix.studentId2,
+                        pairCount: pairingMatrix.pairCount,
+                        lastPaired: pairingMatrix.lastPaired
+                  })
+                  .from(pairingMatrix)
+                  .where(
+                        and(
+                              eq(pairingMatrix.classId, classId),
+                              or(
+                                    inArray(pairingMatrix.studentId1, studentIds),
+                                    inArray(pairingMatrix.studentId2, studentIds)
+                              )
+                        )
+                  )
+                  .execute();
 
             // Convert to cost matrix (higher pair counts = higher costs)
             const costMatrix = new Map<string, number>();
@@ -527,7 +552,7 @@ export async function getOptimalGroups(classId: number, studentIds: number[], gr
                   const key = [pair.studentId1, pair.studentId2].sort().join('-');
                   // Consider both pair count and recency in cost
                   const recencyCost = pair.lastPaired
-                        ? Math.max(0, 10 - Math.floor((Date.now() - pair.lastPaired.getTime()) / (1000 * 60 * 60 * 24)))
+                        ? Math.max(0, 10 - Math.floor((Date.now() - new Date(pair.lastPaired).getTime()) / (1000 * 60 * 60 * 24)))
                         : 0;
                   costMatrix.set(key, (pair.pairCount * 10) + recencyCost);
             });
