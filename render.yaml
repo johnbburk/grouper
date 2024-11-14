@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: grouper
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: node build/index.js
+    envVars:
+      - key: NODE_VERSION
+        value: 18.0.0 

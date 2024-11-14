@@ -1,22 +1,17 @@
 # Grouper
 
-A tool for creating optimized student groups based on pairing history.
+A local-first tool for creating optimized student groups based on pairing history.
 
-## Prerequisites
+## Features
+- Create random groups of students
+- Track how often students work together
+- Optimize groups based on pairing history
+- Store all data locally
 
-- Node.js (v16 or higher)
-- MySQL (v8.0 or higher)
+## Quick Start
 
-## Setup Instructions
+1. Install Node.js (v16 or higher) from https://nodejs.org/
 
-1. Install MySQL:
-   - Mac: `brew install mysql`
-   - Windows: Download MySQL Installer from mysql.com
-   - Linux: `sudo apt install mysql-server`
+2. Download and unzip this project
 
-2. Start MySQL:
-   - Mac: `brew services start mysql`
-   - Windows: MySQL starts automatically as a service
-   - Linux: `sudo systemctl start mysql`
-
-3. Create the database:
+3. Open a terminal in the project folder and run:

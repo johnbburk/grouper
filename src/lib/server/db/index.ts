@@ -1,5 +1,5 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { createClient } from '@libsql/client';
+import { drizzle } from 'drizzle-orm/libsql';
 import { classes, students, studyGroups, groupAssignments, pairingMatrix } from './schema';
 import { eq, and, inArray, sql } from 'drizzle-orm';
 import { mkdirSync } from 'fs';
@@ -8,8 +8,12 @@ import { mkdirSync } from 'fs';
 mkdirSync('data', { recursive: true });
 
 // Connect to SQLite database
-const sqlite = new Database('data/grouper.db');
-export const db = drizzle(sqlite);
+const client = createClient({
+      url: process.env.DATABASE_URL || 'file:data/grouper.db',
+      authToken: process.env.DATABASE_AUTH_TOKEN
+});
+
+export const db = drizzle(client);
 
 // Class operations
 export async function addClass(name: string) {
