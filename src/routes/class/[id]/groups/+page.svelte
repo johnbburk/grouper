@@ -225,10 +225,6 @@
 
   // Update the handleDndConsider function
   async function handleDndConsider(e: CustomEvent<{ items: Array<any> }>, targetGroupIndex: number) {
-    console.log('=== DND CONSIDER EVENT TRIGGERED ===');
-    console.log('Target group index:', targetGroupIndex);
-    console.log('Source group index:', dragSourceGroupIndex);
-    
     // If this is the first consider event of a drag, set up tracking
     if (dragSourceGroupIndex === null) {
       dragSourceGroupIndex = targetGroupIndex;
@@ -245,7 +241,6 @@
       // Find which student is being dragged
       const currentStudents = currentGroups[targetGroupIndex].students;
       draggedStudent = currentStudents.find(s => !e.detail.items.some(item => item.id === s.id)) || null;
-      console.log('Dragged student:', draggedStudent);
     }
     
     const newGroups = [...currentGroups];
@@ -301,11 +296,6 @@
 
   // Update the handleDndFinalize function
   async function handleDndFinalize(e: CustomEvent<{ items: Array<any> }>, targetGroupIndex: number) {
-    console.log('=== DND FINALIZE EVENT TRIGGERED ===');
-    console.log('Target group index:', targetGroupIndex);
-    console.log('Source group index:', dragSourceGroupIndex);
-    console.log('Dragged student:', draggedStudent);
-    
     // If we're finalizing in the same group we started in, restore the original state
     if (dragSourceGroupIndex === targetGroupIndex && originalGroupState) {
       currentGroups = originalGroupState;
@@ -358,14 +348,17 @@
     currentGroups = newGroups;
     
     // Verify final state
-    logGroupState('Final Group State After Drop');
     checkForDuplicates();
   }
 
   // Add a utility function to check for duplicates across all groups
   function checkForDuplicates() {
     const allStudents = new Set();
-    let duplicates = [];
+    let duplicates: Array<{
+      studentId: number;
+      studentName: string;
+      groupIndex: number;
+    }> = [];
     
     currentGroups.forEach((group, groupIndex) => {
       group.students.forEach(student => {
@@ -386,25 +379,13 @@
     }
   }
 
-  // Add this function to log the current state of all groups
-  function logGroupState(message: string) {
-    console.log('=== ' + message + ' ===');
-    currentGroups.forEach((group, index) => {
-      console.log(`Group ${index} (${group.name}):`, 
-        group.students.map(s => `${s.lastName}, ${s.firstName} (${s.id})`));
-    });
-  }
-
   // Update the reactive statement to include more detailed logging
   $: if (currentGroups) {
-    console.log('Groups updated:', currentGroups);
     checkForDuplicates();
-    logGroupState('Current Group State');
   }
 
   onMount(() => {
-    console.log('Component mounted');
-    console.log('Initial groups:', currentGroups);
+    // Component mounted - no logging needed
   });
 </script>
 
