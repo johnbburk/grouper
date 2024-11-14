@@ -1,10 +1,12 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import { page } from '$app/stores';
+  import { fade } from 'svelte/transition';
   import { dndzone } from 'svelte-dnd-action';
+  import { onMount } from 'svelte';
   
   export let data: PageData;
-  let groupSize = 4;
+  let groupSize = 2;
   let selectedStudents = new Set(data.students.map(s => s.id));
   let randomizing = false;
   let saving = false;
@@ -15,11 +17,9 @@
       id: number; 
       firstName: string; 
       lastName: string 
-    }> 
+    }>;
+    score?: number;
   }> = [];
-  
-  // DnD configuration
-  const flipDurationMs = 300;
   
   let showDisplayMode = false;
   let saveSuccess = false;
@@ -49,73 +49,6 @@
     selectedStudents.clear();
     selectedStudents = selectedStudents;
   }
-
-  function sortStudentsAlphabetically(students: Array<{ id: number; firstName: string; lastName: string }>) {
-    return [...students].sort((a, b) => {
-      const nameA = `${a.lastName}, ${a.firstName}`.toLowerCase();
-      const nameB = `${b.lastName}, ${b.firstName}`.toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-  }
-  
-  async function calculateGroupScore(students: Array<{ id: number; firstName: string; lastName: string }>) {
-    try {
-      // Get grouping history for all students in the group
-      const historyPromises = students.map(async student => {
-        const response = await fetch(
-          `/api/class/${$page.params.id}/students/${student.id}/history`
-        );
-        if (!response.ok) return [];
-        const data = await response.json();
-        return data.groupedStudents || [];
-      });
-
-      const histories = await Promise.all(historyPromises);
-      let score = 0;
-
-      // Calculate score based on how many times each pair has worked together
-      for (let i = 0; i < students.length; i++) {
-        for (let j = i + 1; j < students.length; j++) {
-          const student1History = histories[i];
-          const student2 = students[j];
-          
-          // Find how many times student2 appears in student1's history
-          const pairCount = student1History.find(h => h.id === student2.id)?.groupCount || 0;
-          score += pairCount;
-        }
-      }
-
-      return score;
-    } catch (error) {
-      console.error('Error calculating group score:', error);
-      return 0;
-    }
-  }
-
-  async function handleDndConsider(e: CustomEvent<{ items: Array<{ id: number; firstName: string; lastName: string }> }>, groupIndex: number) {
-    const newGroups = [...currentGroups];
-    newGroups[groupIndex] = {
-      ...newGroups[groupIndex],
-      students: e.detail.items
-    };
-    currentGroups = newGroups;
-  }
-
-  async function handleDndFinalize(e: CustomEvent<{ items: Array<{ id: number; firstName: string; lastName: string }> }>, groupIndex: number) {
-    const newGroups = [...currentGroups];
-    const sortedStudents = sortStudentsAlphabetically(e.detail.items);
-    
-    // Calculate new score for the modified group
-    const score = await calculateGroupScore(sortedStudents);
-    
-    newGroups[groupIndex] = {
-      ...newGroups[groupIndex],
-      students: sortedStudents,
-      score
-    };
-    
-    currentGroups = newGroups;
-  }
   
   async function handleRandomize() {
     if (selectedStudents.size < 2) {
@@ -139,17 +72,7 @@
       if (response.ok) {
         const result = await response.json();
         console.log('Received groups:', result.groups);
-        
-        // Sort students within each group
-        currentGroups = result.groups.map((group: { 
-          id: number; 
-          name: string; 
-          students: Array<{ id: number; firstName: string; lastName: string }> 
-        }) => ({
-          ...group,
-          students: sortStudentsAlphabetically(group.students)
-        }));
-        
+        currentGroups = result.groups;
         console.log('Processed groups:', currentGroups);
       } else {
         const error = await response.json();
@@ -206,20 +129,6 @@
     }
   }
 
-  // Add this new function to refresh student history
-  async function refreshStudentHistory(student: { id: number; firstName: string; lastName: string }) {
-    try {
-      const response = await fetch(
-        `/api/class/${$page.params.id}/students/${student.id}/history`
-      );
-      if (response.ok) {
-        studentHistory = await response.json();
-      }
-    } catch (error) {
-      console.error('Error refreshing student history:', error);
-    }
-  }
-
   function toggleDisplayMode() {
     showDisplayMode = !showDisplayMode;
   }
@@ -255,6 +164,248 @@
     selectedStudentHistory = student;
     await refreshStudentHistory(student);
   }
+
+  async function refreshStudentHistory(student: { id: number; firstName: string; lastName: string }) {
+    try {
+      const response = await fetch(
+        `/api/class/${$page.params.id}/students/${student.id}/history`
+      );
+      if (response.ok) {
+        studentHistory = await response.json();
+      }
+    } catch (error) {
+      console.error('Error refreshing student history:', error);
+    }
+  }
+
+  const flipDurationMs = 200;
+
+  async function calculateGroupScore(students: Array<{ id: number }>) {
+    try {
+      const response = await fetch(
+        `/api/class/${$page.params.id}/groups/calculate-score`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ studentIds: students.map(s => s.id) })
+        }
+      );
+      if (response.ok) {
+        const { score } = await response.json();
+        return score;
+      }
+      return 0;
+    } catch (error) {
+      console.error('Error calculating score:', error);
+      return 0;
+    }
+  }
+
+  // Modify the createDnDItems function to use a more unique identifier
+  function createDnDItems(students: Array<{ id: number; firstName: string; lastName: string }>, groupIndex: number) {
+    return students
+      .filter(student => student.id !== undefined && typeof student.id === 'number')
+      .map(student => ({
+        ...student,
+        uniqueId: `${groupIndex}-${student.id}-${Math.random()}` // Add randomness to ensure uniqueness during drag
+      }));
+  }
+
+  // Add this to track the source group during drag operations
+  let dragSourceGroupIndex: number | null = null;
+
+  // Add this to track the dragged student
+  let draggedStudent: { id: number; firstName: string; lastName: string } | null = null;
+
+  // Add this to track the original group state before drag
+  let originalGroupState: typeof currentGroups | null = null;
+
+  // Add this to track all student placements
+  let studentPlacements = new Map<number, number>(); // studentId -> groupIndex
+
+  // Update the handleDndConsider function
+  async function handleDndConsider(e: CustomEvent<{ items: Array<any> }>, targetGroupIndex: number) {
+    console.log('=== DND CONSIDER EVENT TRIGGERED ===');
+    console.log('Target group index:', targetGroupIndex);
+    console.log('Source group index:', dragSourceGroupIndex);
+    
+    // If this is the first consider event of a drag, set up tracking
+    if (dragSourceGroupIndex === null) {
+      dragSourceGroupIndex = targetGroupIndex;
+      originalGroupState = JSON.parse(JSON.stringify(currentGroups));
+      
+      // Initialize student placements
+      studentPlacements.clear();
+      currentGroups.forEach((group, groupIndex) => {
+        group.students.forEach(student => {
+          studentPlacements.set(student.id, groupIndex);
+        });
+      });
+      
+      // Find which student is being dragged
+      const currentStudents = currentGroups[targetGroupIndex].students;
+      draggedStudent = currentStudents.find(s => !e.detail.items.some(item => item.id === s.id)) || null;
+      console.log('Dragged student:', draggedStudent);
+    }
+    
+    const newGroups = [...currentGroups];
+    
+    // If we're back in the original group and not over a new group, restore the original state
+    if (dragSourceGroupIndex === targetGroupIndex && originalGroupState) {
+      newGroups[targetGroupIndex] = {
+        ...originalGroupState[targetGroupIndex]
+      };
+      currentGroups = newGroups;
+      return;
+    }
+    
+    // Filter and validate items
+    let validItems = e.detail.items
+      .filter(item => 
+        item.id !== undefined && 
+        typeof item.id === 'number' && 
+        !String(item.id).includes('dnd-shadow')
+      )
+      .filter((item, index, self) => 
+        index === self.findIndex(t => t.id === item.id)
+      );
+
+    // Update student placements and remove from other groups
+    validItems.forEach(item => {
+      const previousGroupIndex = studentPlacements.get(item.id);
+      if (previousGroupIndex !== undefined && previousGroupIndex !== targetGroupIndex) {
+        // Remove student from previous group
+        newGroups[previousGroupIndex] = {
+          ...newGroups[previousGroupIndex],
+          students: newGroups[previousGroupIndex].students.filter(s => s.id !== item.id)
+        };
+      }
+      studentPlacements.set(item.id, targetGroupIndex);
+    });
+
+    // Update the target group
+    newGroups[targetGroupIndex] = {
+      ...newGroups[targetGroupIndex],
+      students: validItems.map(item => ({
+        id: item.id,
+        firstName: item.firstName,
+        lastName: item.lastName
+      }))
+    };
+
+    currentGroups = newGroups;
+    
+    // Verify no duplicates
+    checkForDuplicates();
+  }
+
+  // Update the handleDndFinalize function
+  async function handleDndFinalize(e: CustomEvent<{ items: Array<any> }>, targetGroupIndex: number) {
+    console.log('=== DND FINALIZE EVENT TRIGGERED ===');
+    console.log('Target group index:', targetGroupIndex);
+    console.log('Source group index:', dragSourceGroupIndex);
+    console.log('Dragged student:', draggedStudent);
+    
+    // If we're finalizing in the same group we started in, restore the original state
+    if (dragSourceGroupIndex === targetGroupIndex && originalGroupState) {
+      currentGroups = originalGroupState;
+      dragSourceGroupIndex = null;
+      draggedStudent = null;
+      originalGroupState = null;
+      studentPlacements.clear();
+      return;
+    }
+    
+    // Otherwise proceed with normal finalize operation
+    const newGroups = [...currentGroups];
+    
+    let validItems = e.detail.items
+      .filter(item => 
+        item.id !== undefined && 
+        typeof item.id === 'number' && 
+        !String(item.id).includes('dnd-shadow')
+      )
+      .filter((item, index, self) => 
+        index === self.findIndex(t => t.id === item.id)
+      );
+
+    const updatedStudents = validItems.map(item => ({
+      id: item.id,
+      firstName: item.firstName,
+      lastName: item.lastName
+    }));
+    
+    // Update the target group
+    newGroups[targetGroupIndex] = {
+      ...newGroups[targetGroupIndex],
+      students: updatedStudents
+    };
+
+    // Calculate scores
+    if (dragSourceGroupIndex !== null && dragSourceGroupIndex !== targetGroupIndex) {
+      newGroups[dragSourceGroupIndex].score = await calculateGroupScore(
+        newGroups[dragSourceGroupIndex].students
+      );
+    }
+    newGroups[targetGroupIndex].score = await calculateGroupScore(updatedStudents);
+    
+    // Reset all tracking
+    dragSourceGroupIndex = null;
+    draggedStudent = null;
+    originalGroupState = null;
+    studentPlacements.clear();
+    
+    currentGroups = newGroups;
+    
+    // Verify final state
+    logGroupState('Final Group State After Drop');
+    checkForDuplicates();
+  }
+
+  // Add a utility function to check for duplicates across all groups
+  function checkForDuplicates() {
+    const allStudents = new Set();
+    let duplicates = [];
+    
+    currentGroups.forEach((group, groupIndex) => {
+      group.students.forEach(student => {
+        if (allStudents.has(student.id)) {
+          duplicates.push({
+            studentId: student.id,
+            studentName: `${student.lastName}, ${student.firstName}`,
+            groupIndex
+          });
+        } else {
+          allStudents.add(student.id);
+        }
+      });
+    });
+    
+    if (duplicates.length > 0) {
+      console.warn('Found duplicate students:', duplicates);
+    }
+  }
+
+  // Add this function to log the current state of all groups
+  function logGroupState(message: string) {
+    console.log('=== ' + message + ' ===');
+    currentGroups.forEach((group, index) => {
+      console.log(`Group ${index} (${group.name}):`, 
+        group.students.map(s => `${s.lastName}, ${s.firstName} (${s.id})`));
+    });
+  }
+
+  // Update the reactive statement to include more detailed logging
+  $: if (currentGroups) {
+    console.log('Groups updated:', currentGroups);
+    checkForDuplicates();
+    logGroupState('Current Group State');
+  }
+
+  onMount(() => {
+    console.log('Component mounted');
+    console.log('Initial groups:', currentGroups);
+  });
 </script>
 
 <div class="container mx-auto p-4">
@@ -268,7 +419,7 @@
   </nav>
 
   <div class="grid grid-cols-12 gap-6">
-    <!-- Student Selection Panel - Now with more compact styling -->
+    <!-- Student Selection Panel -->
     <div class="col-span-4 border rounded-lg p-4">
       <div class="flex justify-between items-center mb-2">
         <h2 class="text-xl font-semibold">Students Present</h2>
@@ -316,7 +467,7 @@
       </div>
     </div>
 
-    <!-- Group Controls and Display Panel - Now 8 columns wide -->
+    <!-- Group Controls and Display Panel -->
     <div class="col-span-8 border rounded-lg p-4">
       <h2 class="text-xl font-semibold mb-4">Create Groups</h2>
       
@@ -362,7 +513,7 @@
           <button
             on:click={handleSave}
             disabled={!currentGroups.length || saving}
-            class="flex-1 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed relative"
+            class="flex-1 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving...' : 'Save Groups'}
           </button>
@@ -381,7 +532,7 @@
           <h3 class="text-lg font-medium mb-3">Current Groups</h3>
           <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {#each currentGroups as group, groupIndex}
-              <div class="border rounded-lg p-3 bg-gray-50 relative">
+              <div class="border rounded-lg p-3 bg-gray-50">
                 <div class="flex justify-between items-start mb-2">
                   <h4 class="font-medium text-blue-600">{group.name}</h4>
                   {#if group.score !== undefined}
@@ -392,19 +543,30 @@
                 </div>
                 <section
                   use:dndzone={{
-                    items: group.students,
+                    items: createDnDItems(group.students, groupIndex),
                     flipDurationMs,
                     dragDisabled: randomizing || saving
                   }}
                   on:consider={(e) => handleDndConsider(e, groupIndex)}
                   on:finalize={(e) => handleDndFinalize(e, groupIndex)}
-                  class="min-h-[50px]"
+                  class="min-h-[100px] p-2 rounded transition-colors"
+                  class:bg-blue-50={group.students.length === 0}
                 >
-                  {#each group.students as student (student.id)}
-                    <div class="p-2 mb-1 bg-white rounded shadow-sm cursor-move hover:shadow-md transition-shadow">
+                  {#each createDnDItems(group.students, groupIndex) as student (student.uniqueId)}
+                    <div 
+                      class="p-2 mb-1 bg-white rounded shadow-sm cursor-move hover:shadow-md transition-shadow"
+                      role="button"
+                      tabindex="0"
+                    >
+                      <span class="text-gray-500 text-sm mr-1">#{student.id}</span>
                       {student.lastName}, {student.firstName}
                     </div>
                   {/each}
+                  {#if group.students.length === 0}
+                    <div class="text-center text-gray-400 py-2">
+                      Drop students here
+                    </div>
+                  {/if}
                 </section>
               </div>
             {/each}
@@ -426,7 +588,7 @@
           aria-label="Close display mode"
         >
           <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
       </div>
@@ -453,7 +615,7 @@
           class="bg-blue-500 text-white px-6 py-3 rounded-full shadow-lg hover:bg-blue-600 flex items-center gap-2"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
           </svg>
           Print Groups
         </button>
@@ -481,76 +643,78 @@
 {/if}
 
 {#if selectedStudentHistory && studentHistory}
-  <div class="col-span-4 border rounded-lg p-4">
-    <div class="flex justify-between items-center mb-4">
-      <h2 class="text-xl font-semibold">
-        History for {selectedStudentHistory.lastName}, {selectedStudentHistory.firstName}
-      </h2>
-      <button
-        class="text-gray-500 hover:text-gray-700"
-        on:click={() => { selectedStudentHistory = null; studentHistory = null; }}
-      >
-        ✕
-      </button>
-    </div>
+  <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold">
+          History for {selectedStudentHistory.lastName}, {selectedStudentHistory.firstName}
+        </h2>
+        <button
+          class="text-gray-500 hover:text-gray-700"
+          on:click={() => { selectedStudentHistory = null; studentHistory = null; }}
+        >
+          ✕
+        </button>
+      </div>
 
-    <div class="space-y-4">
-      {#if studentHistory.neverGrouped.length > 0}
-        <div>
-          <h3 class="text-lg font-medium mb-2 text-red-600">Never Grouped With:</h3>
-          <div class="flex flex-wrap gap-2">
-            {#each [...studentHistory.neverGrouped].sort((a, b) => 
-              `${a.lastName}, ${a.firstName}`.localeCompare(`${b.lastName}, ${b.firstName}`)
-            ) as student}
-              <span class="text-sm bg-red-50 text-red-700 px-2 py-1 rounded">
-                {student.lastName}, {student.firstName}
-              </span>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      {#if studentHistory.groupedStudents.length > 0}
-        <div>
-          <h3 class="text-lg font-medium mb-2 text-blue-600">Previous Groupmates:</h3>
-          <div class="grid grid-cols-2 gap-2">
-            {#each studentHistory.groupedStudents as student}
-              <div class="text-sm flex justify-between items-center bg-blue-50 px-2 py-1 rounded">
-                <span>{student.lastName}, {student.firstName}</span>
-                <span class="text-blue-600 font-medium ml-2">
-                  ({student.groupCount} time{student.groupCount !== 1 ? 's' : ''})
+      <div class="space-y-4">
+        {#if studentHistory.neverGrouped.length > 0}
+          <div>
+            <h3 class="text-lg font-medium mb-2 text-red-600">Never Grouped With:</h3>
+            <div class="flex flex-wrap gap-2">
+              {#each [...studentHistory.neverGrouped].sort((a, b) => 
+                `${a.lastName}, ${a.firstName}`.localeCompare(`${b.lastName}, ${b.firstName}`)
+              ) as student}
+                <span class="text-sm bg-red-50 text-red-700 px-2 py-1 rounded">
+                  {student.lastName}, {student.firstName}
                 </span>
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      <div>
-        <h3 class="text-lg font-medium mb-2 text-green-600">Previous Groups:</h3>
-        <div class="grid grid-cols-2 gap-4">
-          {#each [...studentHistory.groupHistory].sort((a, b) => 
-            new Date(b.date).getTime() - new Date(a.date).getTime()
-          ) as group}
-            <div class="text-sm p-2 bg-white rounded border">
-              <div class="flex justify-between items-start mb-1">
-                <span class="font-medium">{group.name}</span>
-                <span class="text-gray-500 text-xs">
-                  {new Date(group.date).toLocaleString('en-US', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                  })}
-                </span>
-              </div>
-              <div class="text-gray-600 text-xs">
-                {group.members.join(', ')}
-              </div>
+              {/each}
             </div>
-          {/each}
+          </div>
+        {/if}
+
+        {#if studentHistory.groupedStudents.length > 0}
+          <div>
+            <h3 class="text-lg font-medium mb-2 text-blue-600">Previous Groupmates:</h3>
+            <div class="grid grid-cols-2 gap-2">
+              {#each studentHistory.groupedStudents as student}
+                <div class="text-sm flex justify-between items-center bg-blue-50 px-2 py-1 rounded">
+                  <span>{student.lastName}, {student.firstName}</span>
+                  <span class="text-blue-600 font-medium ml-2">
+                    ({student.groupCount} time{student.groupCount !== 1 ? 's' : ''})
+                  </span>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
+        <div>
+          <h3 class="text-lg font-medium mb-2 text-green-600">Previous Groups:</h3>
+          <div class="grid grid-cols-2 gap-4">
+            {#each [...studentHistory.groupHistory].sort((a, b) => 
+              new Date(b.date).getTime() - new Date(a.date).getTime()
+            ) as group}
+              <div class="text-sm p-2 bg-white rounded border">
+                <div class="flex justify-between items-start mb-1">
+                  <span class="font-medium">{group.name}</span>
+                  <span class="text-gray-500 text-xs">
+                    {new Date(group.date).toLocaleString('en-US', {
+                      year: 'numeric',
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true
+                    })}
+                  </span>
+                </div>
+                <div class="text-gray-600 text-xs">
+                  {group.members.join(', ')}
+                </div>
+              </div>
+            {/each}
+          </div>
         </div>
       </div>
     </div>
@@ -558,23 +722,6 @@
 {/if}
 
 <style>
-  section {
-    padding: 0.5rem;
-    border-radius: 0.25rem;
-    background-color: rgba(255, 255, 255, 0.5);
-  }
-
-  section:empty {
-    padding: 1.5rem;
-    border: 2px dashed #e2e8f0;
-  }
-
-  /* Add styles for the fullscreen display */
-  .fixed {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  
   @media print {
     .fixed {
       position: static;
@@ -604,7 +751,6 @@
     }
   }
 
-  /* Add animation for notifications */
   @keyframes fadeOut {
     from { opacity: 1; }
     to { opacity: 0; }

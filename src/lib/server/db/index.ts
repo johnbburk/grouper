@@ -63,105 +63,171 @@ interface GroupScore {
       score: number;
 }
 
+interface GroupConfiguration {
+      groups: Array<number[]>;
+      score: number;
+}
+
 export async function createGroups(
       classId: number,
       groupSize: number,
       studentIds: number[]
 ) {
       try {
-            // 1. Get selected students and their grouping history
+            // Get pairing matrix for these students with a more precise query
+            const [pairings] = await poolConnection.query(
+                  `SELECT student_id_1, student_id_2, pair_count 
+            FROM pairing_matrix 
+            WHERE class_id = ? 
+            AND (
+                (student_id_1 IN (?) AND student_id_2 IN (?))
+                OR 
+                (student_id_2 IN (?) AND student_id_1 IN (?))
+            )`,
+                  [classId, studentIds, studentIds, studentIds, studentIds]
+            ) as [Array<{ student_id_1: number; student_id_2: number; pair_count: number }>, any];
+
+            console.log('Found pairings:', pairings); // Debug log
+
+            // Build cost matrix for quick lookups (handle both directions)
+            const pairMatrix = new Map<string, number>();
+            pairings.forEach(pair => {
+                  // Store both directions and normalized key
+                  const [id1, id2] = [pair.student_id_1, pair.student_id_2].sort((a, b) => a - b);
+                  const key = `${id1}-${id2}`;
+                  pairMatrix.set(key, pair.pair_count);
+                  console.log(`Storing pair ${key}: ${pair.pair_count}`); // Debug log
+            });
+
+            // Helper function to calculate group cost
+            async function calculateGroupCost(students: number[]): Promise<number> {
+                  let cost = 0;
+                  for (let i = 0; i < students.length; i++) {
+                        for (let j = i + 1; j < students.length; j++) {
+                              const pairCount = await getPairCount(classId, students[i], students[j]);
+                              cost += pairCount;
+                              console.log(`Pair ${students[i]}-${students[j]} count: ${pairCount}`);
+                        }
+                  }
+                  console.log(`Total group cost: ${cost}`);
+                  return cost;
+            }
+
+            // Calculate total configuration cost
+            function calculateTotalCost(groups: number[][]): number {
+                  return groups.reduce((sum, group) => sum + calculateGroupCost(group), 0);
+            }
+
+            // Create initial random configuration
+            function createInitialGroups(): GroupConfiguration {
+                  const shuffled = [...studentIds].sort(() => Math.random() - 0.5);
+                  const groups: number[][] = [];
+
+                  for (let i = 0; i < shuffled.length; i += groupSize) {
+                        groups.push(shuffled.slice(i, Math.min(i + groupSize, shuffled.length)));
+                  }
+
+                  return {
+                        groups,
+                        score: calculateTotalCost(groups)
+                  };
+            }
+
+            // Swap two random students between groups
+            function createNeighborConfig(current: GroupConfiguration): GroupConfiguration {
+                  const newGroups = current.groups.map(g => [...g]);
+
+                  // Pick two random groups
+                  const group1Index = Math.floor(Math.random() * newGroups.length);
+                  let group2Index;
+                  do {
+                        group2Index = Math.floor(Math.random() * newGroups.length);
+                  } while (group1Index === group2Index && newGroups.length > 1);
+
+                  // Pick random students from each group
+                  const student1Index = Math.floor(Math.random() * newGroups[group1Index].length);
+                  const student2Index = Math.floor(Math.random() * newGroups[group2Index].length);
+
+                  // Swap students
+                  const temp = newGroups[group1Index][student1Index];
+                  newGroups[group1Index][student1Index] = newGroups[group2Index][student2Index];
+                  newGroups[group2Index][student2Index] = temp;
+
+                  return {
+                        groups: newGroups,
+                        score: calculateTotalCost(newGroups)
+                  };
+            }
+
+            // Simulated annealing parameters
+            const initialTemperature = 100;
+            const coolingRate = 0.95;
+            const iterations = 1000;
+
+            // Run simulated annealing
+            let currentConfig = createInitialGroups();
+            let bestConfig = { ...currentConfig };
+            let temperature = initialTemperature;
+
+            console.log('Initial configuration score:', currentConfig.score);
+
+            for (let i = 0; i < iterations; i++) {
+                  const neighborConfig = createNeighborConfig(currentConfig);
+                  const scoreDiff = neighborConfig.score - currentConfig.score;
+
+                  // Accept if better or with probability based on temperature
+                  if (scoreDiff < 0 || Math.random() < Math.exp(-scoreDiff / temperature)) {
+                        currentConfig = neighborConfig;
+
+                        // Update best if this is better
+                        if (currentConfig.score < bestConfig.score) {
+                              bestConfig = { ...currentConfig };
+                              console.log('New best score:', bestConfig.score, 'at iteration', i);
+                        }
+                  }
+
+                  // Cool down
+                  temperature *= coolingRate;
+            }
+
+            console.log('Final best score:', bestConfig.score);
+
+            // Get student details and create groups
             const [students] = await poolConnection.query(
-                  'SELECT id, first_name, last_name, class_id, COALESCE(grouping_history, "[]") as grouping_history FROM students WHERE class_id = ? AND id IN (?)',
-                  [classId, studentIds]
+                  'SELECT id, first_name, last_name FROM students WHERE id IN (?)',
+                  [studentIds]
             ) as [Array<{
                   id: number;
                   first_name: string;
                   last_name: string;
-                  class_id: number;
-                  grouping_history: string;
             }>, any];
 
-            // 2. Build history matrix
-            const historyMatrix = new Map<string, number>();
-            students.forEach(student => {
-                  try {
-                        const history = JSON.parse(student.grouping_history);
-                        history.forEach((entry: { groupmateId: number }) => {
-                              const pairKey = [student.id, entry.groupmateId].sort().join('-');
-                              historyMatrix.set(pairKey, (historyMatrix.get(pairKey) || 0) + 1);
-                        });
-                  } catch (error) {
-                        console.error('Error parsing history:', error);
-                  }
-            });
-
-            // 3. Function to calculate group score
-            function calculateGroupScore(groupStudents: typeof students) {
-                  let score = 0;
-                  for (let i = 0; i < groupStudents.length; i++) {
-                        for (let j = i + 1; j < groupStudents.length; j++) {
-                              const pairKey = [groupStudents[i].id, groupStudents[j].id].sort().join('-');
-                              score += historyMatrix.get(pairKey) || 0;
-                        }
-                  }
-                  return score;
-            }
-
-            // 4. Generate multiple random configurations and pick the best
-            const numberOfAttempts = 100;
-            let bestGroups: GroupScore[] = [];
-            let bestTotalScore = Infinity;
-
-            for (let attempt = 0; attempt < numberOfAttempts; attempt++) {
-                  const shuffled = [...students].sort(() => Math.random() - 0.5);
-                  const currentGroups: GroupScore[] = [];
-                  let currentTotalScore = 0;
-
-                  // Create groups from this shuffle
-                  for (let i = 0; i < Math.ceil(shuffled.length / groupSize); i++) {
-                        const groupStudents = shuffled.slice(i * groupSize, (i + 1) * groupSize);
-                        const score = calculateGroupScore(groupStudents);
-                        currentGroups.push({
-                              students: groupStudents.map(s => ({
-                                    id: s.id,
-                                    firstName: s.first_name,
-                                    lastName: s.last_name
-                              })),
-                              score
-                        });
-                        currentTotalScore += score;
-                  }
-
-                  // Keep this configuration if it's better
-                  if (currentTotalScore < bestTotalScore) {
-                        bestGroups = currentGroups;
-                        bestTotalScore = currentTotalScore;
-                  }
-            }
-
-            // 5. Save the groups to the database with proper timestamps
+            const studentMap = new Map(students.map(s => [s.id, s]));
             const createdGroups = [];
-            const now = new Date();
 
-            for (let i = 0; i < bestGroups.length; i++) {
+            // Save the optimized groups
+            for (let i = 0; i < bestConfig.groups.length; i++) {
                   const [groupResult] = await poolConnection.query(
-                        'INSERT INTO study_groups (name, class_id, created_at) VALUES (?, ?, ?)',
-                        [`Group ${i + 1}`, classId, now]
+                        'INSERT INTO study_groups (name, class_id, created_at) VALUES (?, ?, NOW())',
+                        [`Group ${i + 1}`, classId]
                   ) as [mysql.ResultSetHeader, any];
 
-                  for (const student of bestGroups[i].students) {
-                        await poolConnection.query(
-                              'INSERT INTO group_assignments (student_id, group_id, date) VALUES (?, ?, ?)',
-                              [student.id, groupResult.insertId, now]
-                        );
-                  }
+                  const groupStudents = bestConfig.groups[i].map(studentId => ({
+                        id: studentId,
+                        firstName: studentMap.get(studentId)!.first_name,
+                        lastName: studentMap.get(studentId)!.last_name
+                  }));
+
+                  // Calculate score using the pairing matrix
+                  const score = await calculateGroupCost(bestConfig.groups[i]);
+                  console.log(`Group ${i + 1} members:`, bestConfig.groups[i].join(', '));
+                  console.log(`Group ${i + 1} score: ${score}`);
 
                   createdGroups.push({
                         id: groupResult.insertId,
                         name: `Group ${i + 1}`,
-                        students: bestGroups[i].students,
-                        score: bestGroups[i].score,
-                        createdAt: now
+                        students: groupStudents,
+                        score
                   });
             }
 
@@ -482,29 +548,25 @@ async function displayPairingMatrix(classId: number) {
 export async function updatePairingMatrix(classId: number, newGroups: Array<{ students: Array<{ id: number }> }>) {
       try {
             // Process new groups first to collect all pairs
-            const pairUpdates = new Map<string, { id1: number; id2: number; }>();
-
             for (const group of newGroups) {
                   // Generate all pairs in this group
                   for (let i = 0; i < group.students.length; i++) {
                         for (let j = i + 1; j < group.students.length; j++) {
                               // Always store with smaller ID first
                               const [id1, id2] = [group.students[i].id, group.students[j].id].sort((a, b) => a - b);
-                              const key = `${id1}-${id2}`;
-                              pairUpdates.set(key, { id1, id2 });
+
+                              // Insert or update the pair
+                              await poolConnection.query(`
+                                    INSERT INTO pairing_matrix (student_id_1, student_id_2, class_id, pair_count, last_paired)
+                                    VALUES (?, ?, ?, 1, NOW())
+                                    ON DUPLICATE KEY UPDATE 
+                                          pair_count = pair_count + 1,
+                                          last_paired = NOW()
+                              `, [id1, id2, classId]);
+
+                              console.log(`Updated pair ${id1}-${id2} in class ${classId}`);
                         }
                   }
-            }
-
-            // For each pair, insert or update
-            for (const { id1, id2 } of pairUpdates.values()) {
-                  await poolConnection.query(`
-                        INSERT INTO pairing_matrix (student_id_1, student_id_2, class_id, pair_count, last_paired)
-                        VALUES (?, ?, ?, 1, NOW())
-                        ON DUPLICATE KEY UPDATE 
-                              pair_count = pair_count + 1,
-                              last_paired = NOW()
-                  `, [id1, id2, classId]);
             }
 
             // After all updates are done, display the matrix
@@ -513,6 +575,26 @@ export async function updatePairingMatrix(classId: number, newGroups: Array<{ st
       } catch (error) {
             console.error('Error updating pairing matrix:', error);
             throw error;
+      }
+}
+
+// Add this function to get pair count
+export async function getPairCount(classId: number, studentId1: number, studentId2: number): Promise<number> {
+      try {
+            const [id1, id2] = [studentId1, studentId2].sort((a, b) => a - b);
+            const [result] = await poolConnection.query(
+                  `SELECT pair_count 
+            FROM pairing_matrix 
+            WHERE class_id = ? 
+            AND student_id_1 = ? 
+            AND student_id_2 = ?`,
+                  [classId, id1, id2]
+            ) as [Array<{ pair_count: number }>, any];
+
+            return result[0]?.pair_count || 0;
+      } catch (error) {
+            console.error('Error getting pair count:', error);
+            return 0;
       }
 }
 
