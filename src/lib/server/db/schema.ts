@@ -30,3 +30,11 @@ export const groupAssignments = mysqlTable('group_assignments', {
 	studentId: int('student_id').references(() => students.id),
 	date: datetime('date').notNull()
 });
+
+export const pairingMatrix = mysqlTable('pairing_matrix', {
+	studentId1: int('student_id_1').references(() => students.id).notNull(),
+	studentId2: int('student_id_2').references(() => students.id).notNull(),
+	classId: int('class_id').references(() => classes.id).notNull(),
+	pairCount: int('pair_count').notNull().default(0),
+	lastPaired: datetime('last_paired'),
+});
