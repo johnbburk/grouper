@@ -56,7 +56,6 @@
 		"dotenv": "^16.4.5",
 		"drizzle-kit": "^0.20.0",
 		"drizzle-orm": "^0.29.0",
-		"svelte-dnd-action": "^0.9.52",
-		"@sveltejs/adapter-node": "^1.0.0"
+		"svelte-dnd-action": "^0.9.52"
 	}
 }
