@@ -16,7 +16,8 @@
     students: Array<{ 
       id: number; 
       firstName: string; 
-      lastName: string 
+      lastName: string;
+      nonStandardGroupings?: number;
     }>;
     score?: number;
   }> = [];
@@ -62,7 +63,8 @@
         method: 'POST',
         body: JSON.stringify({ 
           groupSize,
-          studentIds: Array.from(selectedStudents)
+          studentIds: Array.from(selectedStudents),
+          considerNonStandard: true
         }),
         headers: {
           'Content-Type': 'application/json'
@@ -71,16 +73,27 @@
       
       if (response.ok) {
         const result = await response.json();
-        console.log('Received groups:', result.groups);
-        currentGroups = result.groups;
-        console.log('Processed groups:', currentGroups);
+        
+        // Create new groups with scores
+        const newGroups = await Promise.all(result.groups.map(async (group: {
+          id: number;
+          name: string;
+          students: Array<{ id: number; firstName: string; lastName: string }>;
+        }) => {
+          const score = await calculateGroupScore(group.students);
+          return {
+            ...group,
+            score
+          };
+        }));
+
+        // Update currentGroups with the new groups
+        currentGroups = newGroups;
       } else {
         const error = await response.json();
-        console.error('Error creating groups:', error);
         alert('Failed to create groups. Please try again.');
       }
     } catch (error) {
-      console.error('Error:', error);
       alert('An error occurred while creating groups.');
     } finally {
       randomizing = false;
@@ -95,9 +108,16 @@
     saveError = false;
     
     try {
+      const nonStandardUpdates = currentGroups
+        .filter(group => isNonStandardGroup(group, groupSize))
+        .flatMap(group => group.students.map(student => student.id));
+
       const response = await fetch(`/api/class/${$page.params.id}/groups/save`, {
         method: 'POST',
-        body: JSON.stringify({ groups: currentGroups }),
+        body: JSON.stringify({ 
+          groups: currentGroups,
+          nonStandardStudentIds: nonStandardUpdates
+        }),
         headers: {
           'Content-Type': 'application/json'
         }
@@ -105,7 +125,6 @@
 
       if (response.ok) {
         saveSuccess = true;
-        // If a student's history is being displayed, refresh it
         if (selectedStudentHistory) {
           await refreshStudentHistory(selectedStudentHistory);
         }
@@ -119,7 +138,6 @@
         }, 3000);
       }
     } catch (error) {
-      console.error('Error saving groups:', error);
       saveError = true;
       setTimeout(() => {
         saveError = false;
@@ -158,6 +176,7 @@
       date: string;
       members: string[];
     }>;
+    nonStandardGroupings: number;
   } | null = null;
   
   async function showStudentHistory(student: { id: number; firstName: string; lastName: string }) {
@@ -182,22 +201,27 @@
 
   async function calculateGroupScore(students: Array<{ id: number }>) {
     try {
-      const response = await fetch(
-        `/api/class/${$page.params.id}/groups/calculate-score`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ studentIds: students.map(s => s.id) })
+        // Get all pairs in the group
+        let score = 0;
+        for (let i = 0; i < students.length; i++) {
+            for (let j = i + 1; j < students.length; j++) {
+                const response = await fetch(
+                    `/api/class/${$page.params.id}/students/${students[i].id}/pairs/${students[j].id}`,
+                    {
+                        method: 'GET',
+                        headers: { 'Content-Type': 'application/json' }
+                    }
+                );
+                if (response.ok) {
+                    const { pairCount } = await response.json();
+                    score += pairCount;
+                }
+            }
         }
-      );
-      if (response.ok) {
-        const { score } = await response.json();
         return score;
-      }
-      return 0;
     } catch (error) {
-      console.error('Error calculating score:', error);
-      return 0;
+        console.error('Error calculating score:', error);
+        return 0;
     }
   }
 
@@ -387,6 +411,10 @@
   onMount(() => {
     // Component mounted - no logging needed
   });
+
+  function isNonStandardGroup(group: typeof currentGroups[0], targetSize: number): boolean {
+    return group.students.length !== targetSize;
+  }
 </script>
 
 <div class="container mx-auto p-4">
@@ -516,11 +544,9 @@
               <div class="border rounded-lg p-3 bg-gray-50">
                 <div class="flex justify-between items-start mb-2">
                   <h4 class="font-medium text-blue-600">{group.name}</h4>
-                  {#if group.score !== undefined}
-                    <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
-                      Score: {group.score}
-                    </span>
-                  {/if}
+                  <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
+                    Score: {group.score ?? 0}
+                  </span>
                 </div>
                 <section
                   use:dndzone={{
@@ -539,7 +565,6 @@
                       role="button"
                       tabindex="0"
                     >
-                      <span class="text-gray-500 text-sm mr-1">#{student.id}</span>
                       {student.lastName}, {student.firstName}
                     </div>
                   {/each}
@@ -627,9 +652,14 @@
   <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-semibold">
-          History for {selectedStudentHistory.lastName}, {selectedStudentHistory.firstName}
-        </h2>
+        <div>
+          <h2 class="text-xl font-semibold">
+            History for {selectedStudentHistory.lastName}, {selectedStudentHistory.firstName}
+          </h2>
+          <p class="text-sm text-gray-600 mt-1">
+            Times in non-standard groups: {studentHistory.nonStandardGroupings}
+          </p>
+        </div>
         <button
           class="text-gray-500 hover:text-gray-700"
           on:click={() => { selectedStudentHistory = null; studentHistory = null; }}

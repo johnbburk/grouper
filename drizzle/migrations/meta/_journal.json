@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1731617957623,
+      "tag": "0000_fancy_zaladane",
+      "breakpoints": true
+    }
+  ]
+}

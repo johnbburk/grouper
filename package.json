@@ -19,7 +19,8 @@
 		"db:studio": "drizzle-kit studio",
 		"migrate": "node -r dotenv/config --loader ts-node/esm src/lib/server/db/migrations/run-migrations.ts",
 		"migrate:run": "tsx scripts/migrate.ts",
-		"migrate:pairing": "tsx scripts/run-migration.ts"
+		"migrate:pairing": "tsx scripts/run-migration.ts",
+		"db:migrate": "tsx src/lib/server/db/migrate.ts"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.45.3",

@@ -14,7 +14,8 @@ export const students = mysqlTable('students', {
 		groupmateId: number;
 		timestamp: string;
 		groupId: number;
-	}>>().default([])
+	}>>().default([]),
+	nonStandardGroupings: int('non_standard_groupings').default(0),
 });
 
 export const studyGroups = mysqlTable('study_groups', {

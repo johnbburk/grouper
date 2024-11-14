@@ -2,23 +2,20 @@ import type { Config } from 'drizzle-kit';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-const { DATABASE_HOST, DATABASE_USER, DATABASE_NAME } = process.env;
-
-if (!DATABASE_HOST || !DATABASE_USER || !DATABASE_NAME) {
-	throw new Error('Missing required database environment variables');
-}
+console.log('Database Config:', {
+	host: process.env.DATABASE_HOST,
+	user: process.env.DATABASE_USERNAME,
+	database: process.env.DATABASE_NAME,
+});
 
 export default {
 	schema: './src/lib/server/db/schema.ts',
 	out: './drizzle/migrations',
 	dialect: 'mysql',
 	dbCredentials: {
-		host: DATABASE_HOST,
-		user: DATABASE_USER,
-		database: DATABASE_NAME,
+		host: '127.0.0.1',
+		user: 'root',
+		database: 'grouper',
+		port: 3306
 	},
-	verbose: true,
-	strict: true,
-	breakpoints: true,
-	tablesOrder: ['classes', 'students', 'study_groups', 'group_assignments'],
 } satisfies Config;
