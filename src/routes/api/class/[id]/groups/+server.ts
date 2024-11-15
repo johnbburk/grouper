@@ -1,55 +1,216 @@
 import { json } from '@sveltejs/kit';
-import type { RequestHandler } from './$types';
-import { createGroups } from '$lib/server/db';
 import { db } from '$lib/server/db';
-import { eq, and, sql, inArray } from 'drizzle-orm';
-import { students, studyGroups } from '$lib/server/db/schema';
-import type { MySqlDatabase } from 'drizzle-orm/mysql-core';
+import { studyGroups, groupAssignments, students, groupingRules } from '$lib/server/db/schema';
+import { eq, sql, and, or } from 'drizzle-orm';
+import type { RequestEvent } from './$types';
 
-interface Student {
-      id: number;
-      firstName: string;
-      lastName: string;
-      nonStandardGroupings: number;
+interface GroupRequest {
+      groupSize: number;
+      studentIds?: number[];
+      considerNonStandard?: boolean;
+      preferOversizeGroups: boolean;
 }
 
-interface DbStudent {
-      id: number;
-      first_name: string;
-      last_name: string;
-      non_standard_groupings: number | null;
-}
+export async function POST({ params, request }: RequestEvent) {
+      const classId = parseInt(params.id);
+      const { groupSize, studentIds = [], preferOversizeGroups } = await request.json() as GroupRequest;
 
-export const POST: RequestHandler = async ({ params, request }) => {
-      const { groupSize, studentIds, considerNonStandard, preferOversizeGroups } = await request.json();
+      try {
+            // Get all grouping rules for this class
+            const rules = await db
+                  .select()
+                  .from(groupingRules)
+                  .where(eq(groupingRules.classId, classId));
 
-      const result = await createGroups(
-            parseInt(params.id),
-            groupSize,
-            studentIds,
-            preferOversizeGroups
-      );
-
-      return json(result);
-};
-
-export const PUT: RequestHandler = async ({ params, request }) => {
-      const { groups, nonStandardStudentIds } = await request.json();
-
-      // Update nonStandardGroupings count for affected students
-      if (nonStandardStudentIds.length > 0) {
-            await db
-                  .update(students)
-                  .set({
-                        nonStandardGroupings: sql`non_standard_groupings + 1`
-                  })
+            // Get selected students or all students if none specified
+            const studentList = await db
+                  .select()
+                  .from(students)
                   .where(
-                        and(
-                              eq(students.classId, parseInt(params.id)),
-                              inArray(students.id, nonStandardStudentIds)
-                        )
+                        studentIds.length > 0
+                              ? sql`${students.classId} = ${classId} AND ${students.id} IN ${studentIds}`
+                              : eq(students.classId, classId)
                   );
-      }
 
-      return json({ success: true });
-}; 
+            // Function to check if two students can be grouped together
+            function canBeGrouped(student1Id: number, student2Id: number): boolean {
+                  return !rules.some(rule =>
+                        (rule.student1Id === student1Id && rule.student2Id === student2Id) ||
+                        (rule.student1Id === student2Id && rule.student2Id === student1Id)
+                  );
+            }
+
+            // Function to validate a group against all rules
+            function isValidGroup(group: typeof studentList): boolean {
+                  for (let i = 0; i < group.length; i++) {
+                        for (let j = i + 1; j < group.length; j++) {
+                              if (!canBeGrouped(group[i].id, group[j].id)) {
+                                    return false;
+                              }
+                        }
+                  }
+                  return true;
+            }
+
+            // Try to create valid groups (up to 10 attempts)
+            let validGroups: typeof studentList[] = [];
+            let attempts = 0;
+            const maxAttempts = 10;
+
+            while (attempts < maxAttempts) {
+                  // Shuffle students randomly
+                  const shuffledStudents = [...studentList].sort(() => Math.random() - 0.5);
+
+                  // Calculate groups based on preferOversizeGroups setting
+                  const totalStudents = shuffledStudents.length;
+                  const baseGroupCount = Math.floor(totalStudents / groupSize);
+                  const remainingStudents = totalStudents % groupSize;
+
+                  let tempGroups: typeof studentList[] = [];
+                  let currentIndex = 0;
+                  let isValid = true;
+
+                  if (preferOversizeGroups && remainingStudents > 0) {
+                        const studentsPerLargeGroup = groupSize + 1;
+                        const numberOfLargeGroups = remainingStudents;
+                        const numberOfNormalGroups = baseGroupCount - remainingStudents;
+
+                        // Create larger groups
+                        for (let i = 0; i < numberOfLargeGroups; i++) {
+                              const group = shuffledStudents.slice(currentIndex, currentIndex + studentsPerLargeGroup);
+                              if (!isValidGroup(group)) {
+                                    isValid = false;
+                                    break;
+                              }
+                              tempGroups.push(group);
+                              currentIndex += studentsPerLargeGroup;
+                        }
+
+                        // Create normal sized groups
+                        if (isValid) {
+                              for (let i = 0; i < numberOfNormalGroups; i++) {
+                                    const group = shuffledStudents.slice(currentIndex, currentIndex + groupSize);
+                                    if (!isValidGroup(group)) {
+                                          isValid = false;
+                                          break;
+                                    }
+                                    tempGroups.push(group);
+                                    currentIndex += groupSize;
+                              }
+                        }
+                  } else {
+                        // Traditional grouping
+                        for (let i = 0; i < shuffledStudents.length; i += groupSize) {
+                              const group = shuffledStudents.slice(i, Math.min(i + groupSize, shuffledStudents.length));
+                              if (!isValidGroup(group)) {
+                                    isValid = false;
+                                    break;
+                              }
+                              tempGroups.push(group);
+                        }
+                  }
+
+                  if (isValid) {
+                        validGroups = tempGroups;
+                        break;
+                  }
+
+                  attempts++;
+            }
+
+            if (validGroups.length === 0) {
+                  return json({
+                        error: 'Unable to create groups that satisfy all rules. Try removing some rules or changing the group size.'
+                  }, { status: 400 });
+            }
+
+            // Create a new study group
+            const [groupResult] = await db
+                  .insert(studyGroups)
+                  .values({
+                        classId,
+                        name: `Group ${new Date().toISOString()}`,
+                        createdAt: new Date().toISOString()
+                  })
+                  .returning();
+
+            // Create group assignments
+            await Promise.all(
+                  validGroups.map(async (group) => {
+                        const groupAssignmentPromises = group.map(student =>
+                              db.insert(groupAssignments)
+                                    .values({
+                                          groupId: groupResult.id,
+                                          studentId: student.id,
+                                          date: new Date().toISOString()
+                                    })
+                                    .returning()
+                        );
+                        return Promise.all(groupAssignmentPromises);
+                  })
+            );
+
+            return json({
+                  success: true,
+                  groupId: groupResult.id,
+                  groups: validGroups.map((students, index) => ({
+                        id: index + 1,
+                        name: `Group ${index + 1}`,
+                        students: students.map(s => ({
+                              id: s.id,
+                              firstName: s.firstName,
+                              lastName: s.lastName
+                        }))
+                  }))
+            });
+      } catch (error) {
+            console.error('Error creating groups:', error);
+            return json({ error: 'Failed to create groups' }, { status: 500 });
+      }
+}
+
+export async function GET({ params }: RequestEvent) {
+      const classId = parseInt(params.id);
+
+      try {
+            // Get the most recent group
+            const [latestGroup] = await db
+                  .select()
+                  .from(studyGroups)
+                  .where(eq(studyGroups.classId, classId))
+                  .orderBy(sql`created_at DESC`)
+                  .limit(1);
+
+            if (!latestGroup) {
+                  return json({ groups: [] });
+            }
+
+            // Get assignments for this group
+            const assignments = await db
+                  .select()
+                  .from(groupAssignments)
+                  .where(eq(groupAssignments.groupId, latestGroup.id));
+
+            // Get student details for each assignment
+            const studentDetails = await Promise.all(
+                  assignments.map(async (assignment) => {
+                        const [student] = await db
+                              .select()
+                              .from(students)
+                              .where(eq(students.id, assignment.studentId!));
+                        return {
+                              ...assignment,
+                              student
+                        };
+                  })
+            );
+
+            return json({
+                  groupId: latestGroup.id,
+                  assignments: studentDetails
+            });
+      } catch (error) {
+            console.error('Error fetching groups:', error);
+            return json({ error: 'Failed to fetch groups' }, { status: 500 });
+      }
+} 

@@ -7,7 +7,6 @@
   
   let showAddClassModal = false;
   let clearing = false;
-  let showConfirmClear = false;
   
   function openAddClassModal() {
     showAddClassModal = true;
@@ -43,7 +42,7 @@
   }
 </script>
 
-<div class="container mx-auto p-4">
+<div class="container mx-auto px-4 pb-4">
   <h1 class="text-2xl font-bold mb-4">My Classes</h1>
   
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">

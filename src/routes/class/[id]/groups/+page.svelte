@@ -517,7 +517,7 @@
               />
             </div>
 
-            <!-- Add the new slider for excess student handling -->
+            <!-- Update the slider section -->
             <div class="flex-1">
               <label class="block text-sm font-medium text-gray-700 mb-1">
                 Excess Student Placement
@@ -530,12 +530,17 @@
                     bind:checked={preferOversizeGroups}
                     class="sr-only peer"
                   >
-                  <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 
-                              peer-focus:ring-blue-300 rounded-full peer 
-                              peer:checked:after:translate-x-full peer:checked:after:border-white 
-                              after:content-[''] after:absolute after:top-[2px] after:left-[2px] 
-                              after:bg-white after:border-gray-300 after:border after:rounded-full 
-                              after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                  <div class="w-11 h-6 bg-gray-200 rounded-full peer 
+                              peer-focus:outline-none peer-focus:ring-4 
+                              peer-focus:ring-blue-300 
+                              peer-checked:after:translate-x-full 
+                              peer-checked:after:border-white 
+                              after:content-[''] after:absolute 
+                              after:top-[2px] after:left-[2px] 
+                              after:bg-white after:border-gray-300 
+                              after:border after:rounded-full 
+                              after:h-5 after:w-5 after:transition-all 
+                              peer-checked:bg-blue-600">
                   </div>
                 </label>
                 <span class="text-sm text-gray-600">Oversize</span>
@@ -543,13 +548,13 @@
             </div>
           </div>
 
-          <!-- Move group count info to its own line -->
+          <!-- Update the info text to be more dynamic -->
           <div class="text-sm text-gray-600">
             This will create {Math.ceil(selectedStudents.size / groupSize)} groups
             {#if selectedStudents.size % groupSize !== 0}
               <br>
               {#if preferOversizeGroups}
-                {Math.floor(selectedStudents.size % groupSize)} students will be added to separate groups
+                {selectedStudents.size % groupSize} students will be added to separate groups
                 (making them size {groupSize + 1})
               {:else}
                 The last group will have {selectedStudents.size % groupSize} students

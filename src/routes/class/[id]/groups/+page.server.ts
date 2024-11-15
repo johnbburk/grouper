@@ -1,7 +1,32 @@
-import { getStudentsByClass } from '$lib/server/db';
-import type { PageServerLoad } from './$types';
+import { db } from '$lib/server/db';
+import { students, classes } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
-export const load: PageServerLoad = async ({ params }) => {
-      const students = await getStudentsByClass(parseInt(params.id));
-      return { students };
-}; 
+export async function load({ params }) {
+      const classId = parseInt(params.id);
+
+      try {
+            // Get the class details
+            const [classData] = await db
+                  .select()
+                  .from(classes)
+                  .where(eq(classes.id, classId));
+
+            // Get all students in this class
+            const studentList = await db
+                  .select()
+                  .from(students)
+                  .where(eq(students.classId, classId));
+
+            return {
+                  class: classData,
+                  students: studentList
+            };
+      } catch (error) {
+            console.error('Error loading class data:', error);
+            return {
+                  class: null,
+                  students: []
+            };
+      }
+} 

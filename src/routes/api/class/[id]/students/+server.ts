@@ -1,29 +1,48 @@
 import { json } from '@sveltejs/kit';
-import { addStudents } from '$lib/server/db';
-import type { RequestHandler } from './$types';
+import { db } from '$lib/server/db';
+import { students } from '$lib/server/db/schema';
 
-export const POST: RequestHandler = async ({ params, request }) => {
-      const { studentList } = await request.json() as { studentList: string };
-
+export async function POST({ params, request }) {
       try {
-            const students = studentList
-                  .split('\n')
-                  .map((line: string) => line.trim())
-                  .filter((line: string) => line.length > 0)
-                  .map((line: string) => {
-                        const [firstName, lastName] = line.split(' ');
-                        return { firstName, lastName };
-                  });
+            const { studentList } = await request.json();
+            const classId = parseInt(params.id);
 
-            const result = await addStudents(parseInt(params.id), students);
-            return json(result);
+            // Split the input into lines and process each line
+            const studentNames = studentList.split('\n')
+                  .map(line => line.trim())
+                  .filter(line => line.length > 0);
+
+            // Process each student name
+            for (const fullName of studentNames) {
+                  const [firstName, lastName] = fullName.split(' ').map(s => s.trim());
+                  if (firstName && lastName) {
+                        await db.insert(students).values({
+                              firstName,
+                              lastName,
+                              classId,
+                              groupingHistory: '[]',
+                              nonStandardGroupings: 0
+                        });
+                  }
+            }
+
+            return json({ success: true });
       } catch (error) {
             console.error('Error importing students:', error);
-            return new Response(JSON.stringify({ error: 'Failed to import students' }), {
-                  status: 500,
-                  headers: {
-                        'Content-Type': 'application/json'
-                  }
-            });
+            return json({ error: 'Failed to import students' }, { status: 500 });
       }
-}; 
+}
+
+export async function DELETE({ params }) {
+      const studentId = parseInt(params.studentId);
+
+      try {
+            await db.delete(students)
+                  .where(eq(students.id, studentId));
+
+            return json({ success: true });
+      } catch (error) {
+            console.error('Error deleting student:', error);
+            return json({ error: 'Failed to delete student' }, { status: 500 });
+      }
+} 

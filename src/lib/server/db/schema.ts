@@ -36,3 +36,13 @@ export const pairingMatrix = sqliteTable('pairing_matrix', {
 	pairCount: integer('pair_count').notNull().default(0),
 	lastPaired: text('last_paired')
 });
+
+export const groupingRules = sqliteTable('grouping_rules', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	classId: integer('class_id').references(() => classes.id, { onDelete: 'cascade' }),
+	student1Id: integer('student1_id').references(() => students.id, { onDelete: 'cascade' }),
+	student2Id: integer('student2_id').references(() => students.id, { onDelete: 'cascade' }),
+	createdAt: text('created_at').notNull()
+});
+
+export type GroupingRule = typeof groupingRules.$inferSelect;

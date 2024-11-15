@@ -1,21 +1,30 @@
 import { json } from '@sveltejs/kit';
-import { addClass } from '$lib/server/db';
-import type { RequestHandler } from './$types';
+import { db } from '$lib/server/db';
+import { classes } from '$lib/server/db/schema';
 
-export const POST: RequestHandler = async ({ request }) => {
-      const { name } = await request.json();
-
+export async function POST({ request }) {
       try {
-            const result = await addClass(name);
-            return json(result);
+            const { name } = await request.json();
+
+            const result = await db.insert(classes)
+                  .values({
+                        name
+                  })
+                  .returning();
+
+            return json({ success: true, class: result[0] });
       } catch (error) {
             console.error('Error adding class:', error);
-            return new Response(
-                  JSON.stringify({ error: 'Failed to add class' }),
-                  {
-                        status: 500,
-                        headers: { 'Content-Type': 'application/json' }
-                  }
-            );
+            return json({ error: 'Failed to add class' }, { status: 500 });
       }
-}; 
+}
+
+export async function GET() {
+      try {
+            const classList = await db.select().from(classes);
+            return json(classList);
+      } catch (error) {
+            console.error('Error fetching classes:', error);
+            return json({ error: 'Failed to fetch classes' }, { status: 500 });
+      }
+} 

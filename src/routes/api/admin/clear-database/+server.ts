@@ -1,19 +1,21 @@
 import { json } from '@sveltejs/kit';
-import { clearDatabase } from '$lib/server/db';
-import type { RequestHandler } from './$types';
+import { db } from '$lib/server/db';
+import { classes, students, studyGroups, groupAssignments, pairingMatrix, groupingRules } from '$lib/server/db/schema';
+import type { RequestEvent } from './$types';
 
-export const POST: RequestHandler = async () => {
+export async function POST({ request }: RequestEvent) {
       try {
-            await clearDatabase();
+            // Delete all data in reverse order of dependencies
+            await db.delete(groupAssignments);
+            await db.delete(pairingMatrix);
+            await db.delete(groupingRules);
+            await db.delete(studyGroups);
+            await db.delete(students);
+            await db.delete(classes);
+
             return json({ success: true });
       } catch (error) {
             console.error('Error clearing database:', error);
-            return new Response(
-                  JSON.stringify({ error: 'Failed to clear database' }),
-                  {
-                        status: 500,
-                        headers: { 'Content-Type': 'application/json' }
-                  }
-            );
+            return json({ error: 'Failed to clear database' }, { status: 500 });
       }
-}; 
+} 
