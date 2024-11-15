@@ -25,6 +25,7 @@ export const groupAssignments = sqliteTable('group_assignments', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	groupId: integer('group_id'),
 	studentId: integer('student_id'),
+	subgroupNumber: integer('subgroup_number').notNull(),
 	date: text('date').notNull()
 });
 

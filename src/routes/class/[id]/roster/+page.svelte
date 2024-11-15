@@ -12,6 +12,8 @@
   let student1Selection: number | null = null;
   let student2Selection: number | null = null;
   
+  let clearingHistory = false;
+  
   async function handleImport() {
     if (!studentInput.trim()) return;
     
@@ -110,6 +112,30 @@
       alert('An error occurred while deleting the rule.');
     }
   }
+
+  async function handleClearHistory() {
+    if (!confirm('WARNING: This will delete all previous groups and reset pairing history. Are you sure?')) {
+      return;
+    }
+
+    clearingHistory = true;
+    try {
+      const response = await fetch(`/api/class/${data.class.id}/history/clear`, {
+        method: 'POST'
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        alert('Failed to clear history. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error clearing history:', error);
+      alert('An error occurred while clearing the history.');
+    } finally {
+      clearingHistory = false;
+    }
+  }
 </script>
 
 <div class="container mx-auto p-4">
@@ -127,6 +153,19 @@
 
   <div class="flex justify-between items-center mb-4">
     <h1 class="text-2xl font-bold">Class Roster</h1>
+    <button
+      class="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+      on:click={handleClearHistory}
+      disabled={clearingHistory}
+    >
+      {#if clearingHistory}
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+        </svg>
+      {/if}
+      {clearingHistory ? 'Clearing History...' : 'Clear All Previous Groups'}
+    </button>
   </div>
   
   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">

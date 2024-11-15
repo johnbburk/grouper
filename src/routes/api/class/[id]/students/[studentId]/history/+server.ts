@@ -70,22 +70,41 @@ export async function GET({ params }: RequestEvent) {
                   .from(students)
                   .where(eq(students.id, studentId));
 
-            // For each group, get all members
+            // For each group, get only the students who were in the same group
             const groupsWithMembers = await Promise.all(
                   groupHistory.map(async (group) => {
-                        const members = await db
+                        // First get this student's subgroup number
+                        const [studentAssignment] = await db
+                              .select()
+                              .from(groupAssignments)
+                              .where(
+                                    and(
+                                          eq(groupAssignments.groupId, group.groupId),
+                                          eq(groupAssignments.studentId, studentId)
+                                    )
+                              );
+
+                        // Then get all students in the same subgroup
+                        const groupMembers = await db
                               .select({
                                     student: students
                               })
                               .from(groupAssignments)
                               .innerJoin(students, eq(groupAssignments.studentId, students.id))
-                              .where(eq(groupAssignments.groupId, group.groupId));
+                              .where(
+                                    and(
+                                          eq(groupAssignments.groupId, group.groupId),
+                                          eq(groupAssignments.subgroupNumber, studentAssignment.subgroupNumber)
+                                    )
+                              );
 
                         return {
                               id: group.groupId,
-                              name: group.name || `Group ${group.groupId}`,
-                              date: group.createdAt,
-                              members: members.map(m => `${m.student.lastName}, ${m.student.firstName}`)
+                              name: `Group ${studentAssignment.subgroupNumber}`,
+                              date: new Date(group.createdAt).toLocaleString(),
+                              members: groupMembers
+                                    .map(m => `${m.student.lastName}, ${m.student.firstName}`)
+                                    .sort((a, b) => a.localeCompare(b))
                         };
                   })
             );

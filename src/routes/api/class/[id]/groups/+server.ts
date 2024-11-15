@@ -124,35 +124,9 @@ export async function POST({ params, request }: RequestEvent) {
                   }, { status: 400 });
             }
 
-            // Create a new study group
-            const [groupResult] = await db
-                  .insert(studyGroups)
-                  .values({
-                        classId,
-                        name: `Group ${new Date().toISOString()}`,
-                        createdAt: new Date().toISOString()
-                  })
-                  .returning();
-
-            // Create group assignments
-            await Promise.all(
-                  validGroups.map(async (group) => {
-                        const groupAssignmentPromises = group.map(student =>
-                              db.insert(groupAssignments)
-                                    .values({
-                                          groupId: groupResult.id,
-                                          studentId: student.id,
-                                          date: new Date().toISOString()
-                                    })
-                                    .returning()
-                        );
-                        return Promise.all(groupAssignmentPromises);
-                  })
-            );
-
+            // Return the groups without saving them
             return json({
                   success: true,
-                  groupId: groupResult.id,
                   groups: validGroups.map((students, index) => ({
                         id: index + 1,
                         name: `Group ${index + 1}`,
