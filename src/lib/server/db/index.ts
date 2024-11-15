@@ -311,12 +311,16 @@ export async function getStudentHistory(studentId: number, classId: number) {
                         groupId: studyGroups.id,
                         groupName: studyGroups.name,
                         createdAt: studyGroups.createdAt,
-                        members: sql<string>`GROUP_CONCAT(DISTINCT ${students.firstName} || ' ' || ${students.lastName})`
+                        members: sql<string>`GROUP_CONCAT(${students.firstName} || ' ' || ${students.lastName}, ' | ')`
                   })
                   .from(groupAssignments)
                   .innerJoin(studyGroups, eq(groupAssignments.groupId, studyGroups.id))
                   .innerJoin(students, eq(groupAssignments.studentId, students.id))
-                  .where(eq(groupAssignments.studentId, studentId))
+                  .where(eq(studyGroups.id, sql`(
+                        SELECT group_id 
+                        FROM group_assignments 
+                        WHERE student_id = ${studentId}
+                  )`))
                   .groupBy(studyGroups.id, studyGroups.name, studyGroups.createdAt)
                   .orderBy(studyGroups.createdAt)
                   .execute();
@@ -349,7 +353,7 @@ export async function getStudentHistory(studentId: number, classId: number) {
                         id: g.groupId,
                         name: g.groupName,
                         date: g.createdAt,
-                        members: g.members?.split(',').filter(Boolean) || []
+                        members: g.members?.split(' | ').filter(Boolean) || []
                   })),
                   nonStandardGroupings: nonStandardResult[0]?.nonStandardGroupings ?? 0
             };
