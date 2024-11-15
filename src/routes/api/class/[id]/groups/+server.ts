@@ -21,13 +21,13 @@ interface DbStudent {
 }
 
 export const POST: RequestHandler = async ({ params, request }) => {
-      const { groupSize, studentIds, considerNonStandard } = await request.json();
+      const { groupSize, studentIds, considerNonStandard, preferOversizeGroups } = await request.json();
 
-      // Use the optimized createGroups function
       const result = await createGroups(
             parseInt(params.id),
             groupSize,
-            studentIds
+            studentIds,
+            preferOversizeGroups
       );
 
       return json(result);

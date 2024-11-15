@@ -72,72 +72,96 @@ interface GroupConfiguration {
 export async function createGroups(
       classId: number,
       groupSize: number,
-      studentIds: number[]
+      studentIds: number[],
+      preferOversizeGroups: boolean = false
 ) {
       try {
-            // Get pairing matrix using drizzle query builder
-            const pairings = await db
-                  .select()
-                  .from(pairingMatrix)
-                  .where(
-                        and(
-                              eq(pairingMatrix.classId, classId),
-                              inArray(pairingMatrix.studentId1, studentIds),
-                              inArray(pairingMatrix.studentId2, studentIds)
-                        )
-                  );
-
-            // Build cost matrix for quick lookups
-            const pairMatrix = new Map<string, number>();
-            pairings.forEach(pair => {
-                  const [id1, id2] = [pair.studentId1, pair.studentId2].sort((a, b) => a - b);
-                  const key = `${id1}-${id2}`;
-                  pairMatrix.set(key, pair.pairCount);
-            });
-
-            // Get student details
+            // Get students with their nonStandardGroupings count
             const studentDetails = await db
-                  .select()
+                  .select({
+                        id: students.id,
+                        firstName: students.firstName,
+                        lastName: students.lastName,
+                        nonStandardGroupings: students.nonStandardGroupings
+                  })
                   .from(students)
-                  .where(inArray(students.id, studentIds));
+                  .where(inArray(students.id, studentIds))
+                  .execute();
 
-            const studentMap = new Map(
-                  studentDetails.map(s => [s.id, { firstName: s.firstName, lastName: s.lastName }])
+            // Sort students by nonStandardGroupings count (ascending)
+            const sortedStudents = [...studentDetails].sort((a, b) =>
+                  (a.nonStandardGroupings ?? 0) - (b.nonStandardGroupings ?? 0)
             );
 
-            // Create groups
+            // Calculate groups
             const numGroups = Math.ceil(studentIds.length / groupSize);
+            const remainder = studentIds.length % groupSize;
             const groups = [];
 
-            // Distribute students into groups
-            const shuffledIds = [...studentIds].sort(() => Math.random() - 0.5);
+            if (remainder === 0) {
+                  // Perfect division, create equal groups
+                  for (let i = 0; i < numGroups; i++) {
+                        const groupStudents = sortedStudents.slice(i * groupSize, (i + 1) * groupSize);
+                        groups.push(groupStudents);
+                  }
+            } else if (preferOversizeGroups) {
+                  // Create oversize groups
+                  const numOversizeGroups = remainder;
+                  const regularSize = groupSize;
+                  const oversizeSize = groupSize + 1;
+                  let currentIndex = 0;
 
-            for (let i = 0; i < numGroups; i++) {
-                  const groupStudents = shuffledIds
-                        .slice(i * groupSize, Math.min((i + 1) * groupSize, shuffledIds.length))
-                        .map(id => ({
-                              id,
-                              firstName: studentMap.get(id)!.firstName,
-                              lastName: studentMap.get(id)!.lastName
-                        }));
+                  // First create the oversize groups using students with lowest nonStandardGroupings
+                  for (let i = 0; i < numOversizeGroups; i++) {
+                        const groupStudents = sortedStudents.slice(currentIndex, currentIndex + oversizeSize);
+                        groups.push(groupStudents);
+                        currentIndex += oversizeSize;
+                  }
 
+                  // Then create regular size groups with remaining students
+                  while (currentIndex < sortedStudents.length) {
+                        const groupStudents = sortedStudents.slice(currentIndex, currentIndex + regularSize);
+                        groups.push(groupStudents);
+                        currentIndex += regularSize;
+                  }
+            } else {
+                  // Create undersize group
+                  const regularGroups = numGroups - 1;
+
+                  // Create regular size groups first
+                  for (let i = 0; i < regularGroups; i++) {
+                        const groupStudents = sortedStudents.slice(i * groupSize, (i + 1) * groupSize);
+                        groups.push(groupStudents);
+                  }
+
+                  // Create the undersize group with remaining students
+                  const undersizeStudents = sortedStudents.slice(regularGroups * groupSize);
+                  groups.push(undersizeStudents);
+            }
+
+            // Create the final group objects and save to database
+            const createdGroups = await Promise.all(groups.map(async (groupStudents, index) => {
                   const result = await db
                         .insert(studyGroups)
                         .values({
-                              name: `Group ${i + 1}`,
+                              name: `Group ${index + 1}`,
                               classId,
                               createdAt: new Date().toISOString()
                         })
                         .returning({ insertId: studyGroups.id });
 
-                  groups.push({
+                  return {
                         id: result[0].insertId,
-                        name: `Group ${i + 1}`,
-                        students: groupStudents
-                  });
-            }
+                        name: `Group ${index + 1}`,
+                        students: groupStudents.map(s => ({
+                              id: s.id,
+                              firstName: s.firstName,
+                              lastName: s.lastName
+                        }))
+                  };
+            }));
 
-            return { groups, pairMatrix };
+            return { groups: createdGroups };
       } catch (error) {
             console.error('Error creating groups:', error);
             throw error;

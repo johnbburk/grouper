@@ -64,7 +64,8 @@
         body: JSON.stringify({ 
           groupSize,
           studentIds: Array.from(selectedStudents),
-          considerNonStandard: true
+          considerNonStandard: true,
+          preferOversizeGroups
         }),
         headers: {
           'Content-Type': 'application/json'
@@ -430,6 +431,9 @@
   function isNonStandardGroup(group: typeof currentGroups[0], targetSize: number): boolean {
     return group.students.length !== targetSize;
   }
+
+  // Add to your script section
+  let preferOversizeGroups = false;
 </script>
 
 <div class="container mx-auto p-4">
@@ -496,30 +500,64 @@
       <h2 class="text-xl font-semibold mb-4">Create Groups</h2>
       
       <div class="space-y-4">
-        <div class="flex gap-4 items-center">
-          <div class="w-48">
-            <label for="group-size" class="block text-sm font-medium text-gray-700 mb-1">
-              Students per Group
-            </label>
-            <input 
-              id="group-size"
-              type="number" 
-              bind:value={groupSize}
-              min="2"
-              max={selectedStudents.size}
-              class="w-full border rounded px-3 py-2"
-            />
+        <div class="flex flex-col gap-4">
+          <!-- Students per group input -->
+          <div class="flex gap-8 items-start">
+            <div class="w-48">
+              <label for="group-size" class="block text-sm font-medium text-gray-700 mb-1">
+                Students per Group
+              </label>
+              <input 
+                id="group-size"
+                type="number" 
+                bind:value={groupSize}
+                min="2"
+                max={selectedStudents.size}
+                class="w-full border rounded px-3 py-2"
+              />
+            </div>
+
+            <!-- Add the new slider for excess student handling -->
+            <div class="flex-1">
+              <label class="block text-sm font-medium text-gray-700 mb-1">
+                Excess Student Placement
+              </label>
+              <div class="flex items-center gap-4">
+                <span class="text-sm text-gray-600">Undersize</span>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    bind:checked={preferOversizeGroups}
+                    class="sr-only peer"
+                  >
+                  <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 
+                              peer-focus:ring-blue-300 rounded-full peer 
+                              peer:checked:after:translate-x-full peer:checked:after:border-white 
+                              after:content-[''] after:absolute after:top-[2px] after:left-[2px] 
+                              after:bg-white after:border-gray-300 after:border after:rounded-full 
+                              after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                  </div>
+                </label>
+                <span class="text-sm text-gray-600">Oversize</span>
+              </div>
+            </div>
           </div>
-          
-          <div class="flex-1 text-sm text-gray-600">
+
+          <!-- Move group count info to its own line -->
+          <div class="text-sm text-gray-600">
             This will create {Math.ceil(selectedStudents.size / groupSize)} groups
             {#if selectedStudents.size % groupSize !== 0}
               <br>
-              (The last group will have {selectedStudents.size % groupSize} students)
+              {#if preferOversizeGroups}
+                {Math.floor(selectedStudents.size % groupSize)} students will be added to separate groups
+                (making them size {groupSize + 1})
+              {:else}
+                The last group will have {selectedStudents.size % groupSize} students
+              {/if}
             {/if}
           </div>
         </div>
-        
+
         <div class="flex gap-2">
           <button
             on:click={handleRandomize}
