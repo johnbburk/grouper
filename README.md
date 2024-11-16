@@ -12,7 +12,31 @@ A local-first tool for creating optimized student groups based on pairing histor
 
 ## Installation
 
-### Step 1: Install Node.js
+### Quick Setup with Script
+
+For a quick setup, you can use the provided `setup.sh` script. This script will automate the installation and setup process.
+
+1. Open a terminal/command prompt.
+2. Navigate to the project directory where `setup.sh` is located.
+   ```bash
+   cd path/to/grouper
+   ```
+3. Make sure the script is executable:
+   ```bash
+   chmod +x setup.sh
+   ```
+4. Run the script:
+   ```bash
+   ./setup.sh
+   ```
+
+This will install Node.js (if not already installed), download the project, install dependencies, initialize the database, and start the application.
+
+### Manual Installation
+
+If you prefer to set up the project manually, follow these steps:
+
+#### Step 1: Install Node.js
 1. Visit https://nodejs.org/
 2. Download the "LTS" (Long Term Support) version for your operating system
 3. Run the installer
@@ -22,12 +46,12 @@ A local-first tool for creating optimized student groups based on pairing histor
    ```
    You should see a version number (v16 or higher)
 
-### Step 2: Get the Project
+#### Step 2: Get the Project
 1. Download this project (green "Code" button → "Download ZIP")
 2. Unzip the file to a location you can easily find
 3. Rename the folder to "grouper" if you want
 
-### Step 3: Set Up the Project
+#### Step 3: Set Up the Project
 1. Open a terminal/command prompt
    - Windows: Press Win+R, type "cmd", press Enter
    - Mac: Press Cmd+Space, type "terminal", press Enter
