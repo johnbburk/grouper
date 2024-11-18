@@ -1,12 +1,86 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import Modal from '$lib/components/Modal.svelte';
+  import QuickGroupsModal from '$lib/components/QuickGroupsModal.svelte';
   import AddClassForm from '$lib/components/AddClassForm.svelte';
   
   export let data: PageData;
   
   let showAddClassModal = false;
   let clearing = false;
+  let quickGroupSizes: { [key: number]: number } = {};
+  let showQuickGroupsModal = false;
+  let currentQuickGroups: any[] = [];
+  let activeClassId: number | null = null;
+  let activeClassName: string = '';
+  
+  // Initialize default group sizes
+  data.classes.forEach(c => {
+    quickGroupSizes[c.id] = 3;
+  });
+  
+  async function handleQuickGroups(classId: number, className: string) {
+    activeClassId = classId;
+    activeClassName = className;
+    
+    try {
+      const response = await fetch(`/api/class/${classId}/groups`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          groupSize: quickGroupSizes[classId],
+          preferOversizeGroups: true
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        currentQuickGroups = result.groups;
+        showQuickGroupsModal = true;
+      } else {
+        alert('Failed to create groups. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error creating quick groups:', error);
+      alert('An error occurred while creating groups.');
+    }
+  }
+  
+  async function handleReRandomize() {
+    if (!activeClassId) return;
+    await handleQuickGroups(activeClassId, activeClassName);
+  }
+  
+  async function handleSaveAndDisplay() {
+    if (!activeClassId) return;
+    
+    try {
+        // Save the groups
+        const saveResponse = await fetch(`/api/class/${activeClassId}/groups/save`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                groups: currentQuickGroups,
+                nonStandardStudentIds: []
+            })
+        });
+        
+        if (!saveResponse.ok) {
+            throw new Error('Failed to save groups');
+        }
+
+        // Don't navigate away, let the modal handle the display
+        return true;
+    } catch (error) {
+        console.error('Error saving groups:', error);
+        alert('An error occurred while saving groups.');
+        return false;
+    }
+  }
   
   function openAddClassModal() {
     showAddClassModal = true;
@@ -49,7 +123,7 @@
     {#each data.classes as class_}
       <div class="border rounded-lg hover:shadow-lg transition-shadow p-4">
         <h2 class="text-xl font-semibold mb-3">{class_.name}</h2>
-        <div class="flex gap-2">
+        <div class="flex gap-2 mb-3">
           <a 
             href="/class/{class_.id}/roster" 
             class="flex-1 text-center px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
@@ -62,6 +136,21 @@
           >
             Groups
           </a>
+        </div>
+        
+        <div class="flex gap-2 items-center">
+          <input
+            type="number"
+            bind:value={quickGroupSizes[class_.id]}
+            min="2"
+            class="w-16 border rounded px-2 py-1"
+          />
+          <button
+            class="flex-1 bg-indigo-500 text-white px-3 py-2 rounded hover:bg-indigo-600 transition-colors"
+            on:click={() => handleQuickGroups(class_.id, class_.name)}
+          >
+            Quick Groups
+          </button>
         </div>
       </div>
     {/each}
@@ -105,3 +194,14 @@
 >
   <AddClassForm closeModal={closeAddClassModal} />
 </Modal>
+
+<QuickGroupsModal
+  showModal={showQuickGroupsModal}
+  classId={activeClassId}
+  className={activeClassName}
+  groupSize={activeClassId ? quickGroupSizes[activeClassId] : 3}
+  groups={currentQuickGroups}
+  on:close={() => showQuickGroupsModal = false}
+  on:reRandomize={handleReRandomize}
+  on:saveAndDisplay={handleSaveAndDisplay}
+/>
