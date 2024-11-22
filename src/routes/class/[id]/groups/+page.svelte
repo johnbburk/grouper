@@ -4,6 +4,7 @@
   import { fade } from 'svelte/transition';
   import { dndzone } from 'svelte-dnd-action';
   import { onMount } from 'svelte';
+  import { calculateGroupScore, isNonStandardGroup, checkForDuplicates } from './groupUtils';
   
   export let data: PageData;
   let groupSize = 2;
@@ -58,6 +59,13 @@
     
     randomizing = true;
     try {
+      console.log('Making request with:', {
+        groupSize,
+        studentIds: Array.from(selectedStudents),
+        considerNonStandard: true,
+        preferOversizeGroups
+      });
+
       const response = await fetch(`/api/class/${$page.params.id}/groups`, {
         method: 'POST',
         body: JSON.stringify({ 
@@ -71,11 +79,15 @@
         }
       });
       
+      console.log('Response status:', response.status);
+      
       if (response.ok) {
         const result = await response.json();
+        console.log('Received groups:', result);
+        
         const newGroups = [];
         for (const group of result.groups) {
-          const score = await calculateGroupScore(group.students);
+          const score = await calculateGroupScore(group.students, $page.params.id);
           newGroups.push({
             ...group,
             score
@@ -84,6 +96,7 @@
         currentGroups = newGroups;
       } else {
         const error = await response.json();
+        console.error('Error response:', error);
         alert('Failed to create groups. Please try again.');
       }
     } catch (error) {
@@ -193,36 +206,6 @@
 
   const flipDurationMs = 200;
 
-  async function calculateGroupScore(students: Array<{ id: number }>) {
-    if (!students || students.length < 2) return 0;
-    
-    try {
-        let score = 0;
-        for (let i = 0; i < students.length; i++) {
-            for (let j = i + 1; j < students.length; j++) {
-                const url = `/api/class/${$page.params.id}/students/${students[i].id}/pairs/${students[j].id}`;
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    console.error('Failed to fetch pair score:', {
-                        status: response.status,
-                        statusText: response.statusText,
-                        url
-                    });
-                    continue;
-                }
-                
-                const data = await response.json();
-                score += data.pairCount || 0;
-            }
-        }
-        return score;
-    } catch (error) {
-        console.error('Error calculating group score:', error);
-        return 0;
-    }
-  }
-
   function createDnDItems(students: Array<{ id: number; firstName: string; lastName: string }>, groupIndex: number) {
     return students
       .filter(student => student.id !== undefined && typeof student.id === 'number')
@@ -308,7 +291,7 @@
     };
 
     currentGroups = newGroups;
-    checkForDuplicates();
+    checkForDuplicates(currentGroups);
   }
 
   async function handleDndFinalize(e: CustomEvent<DndEvent>, targetGroupIndex: number) {
@@ -362,45 +345,14 @@
     studentPlacements.clear();
     
     currentGroups = newGroups;
-    checkForDuplicates();
-  }
-
-  function checkForDuplicates() {
-    const allStudents = new Set();
-    let duplicates: Array<{
-      studentId: number;
-      studentName: string;
-      groupIndex: number;
-    }> = [];
-    
-    currentGroups.forEach((group, groupIndex) => {
-      group.students.forEach(student => {
-        if (allStudents.has(student.id)) {
-          duplicates.push({
-            studentId: student.id,
-            studentName: `${student.lastName}, ${student.firstName}`,
-            groupIndex
-          });
-        } else {
-          allStudents.add(student.id);
-        }
-      });
-    });
-    
-    if (duplicates.length > 0) {
-      console.warn('Found duplicate students:', duplicates);
-    }
+    checkForDuplicates(currentGroups);
   }
 
   $: if (currentGroups) {
-    checkForDuplicates();
+    checkForDuplicates(currentGroups);
   }
 
   onMount(() => {});
-
-  function isNonStandardGroup(group: typeof currentGroups[0], targetSize: number): boolean {
-    return group.students.length !== targetSize;
-  }
 
   let preferOversizeGroups = false;
 </script>
@@ -556,6 +508,7 @@
             {saving ? 'Saving...' : 'Save Groups'}
           </button>
         </div>
+
       </div>
 
       {#if currentGroups.length > 0}
