@@ -14,10 +14,18 @@ export default defineConfig({
 	},
 	build: {
 		rollupOptions: {
-			external: ['@node-rs/argon2']
+			external: [
+				'@node-rs/argon2',
+				'@oslojs/encoding',
+				'lucia'
+			]
 		}
 	},
 	ssr: {
-		noExternal: ['@node-rs/argon2']
+		noExternal: [
+			'@node-rs/argon2',
+			'@oslojs/encoding',
+			'lucia'
+		]
 	}
 });

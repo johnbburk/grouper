@@ -4,16 +4,16 @@ import type { RequestHandler } from './$types';
 
 export const DELETE: RequestHandler = async ({ params }) => {
       try {
-            await deleteStudent(parseInt(params.studentId));
-            return json({ success: true });
+            const studentId = parseInt(params.studentId);
+            const success = await deleteStudent(studentId);
+
+            if (success) {
+                  return json({ success: true });
+            } else {
+                  return json({ error: 'Failed to delete student' }, { status: 500 });
+            }
       } catch (error) {
             console.error('Error deleting student:', error);
-            return new Response(
-                  JSON.stringify({ error: 'Failed to delete student' }),
-                  {
-                        status: 500,
-                        headers: { 'Content-Type': 'application/json' }
-                  }
-            );
+            return json({ error: 'Failed to delete student' }, { status: 500 });
       }
 }; 
