@@ -75,26 +75,24 @@
       if (response.ok) {
         const result = await response.json();
         
-        // Create new groups with scores
-        const newGroups = await Promise.all(result.groups.map(async (group: {
-          id: number;
-          name: string;
-          students: Array<{ id: number; firstName: string; lastName: string }>;
-        }) => {
+        // Calculate scores for each group
+        const newGroups = [];
+        for (const group of result.groups) {
           const score = await calculateGroupScore(group.students);
-          return {
+          newGroups.push({
             ...group,
             score
-          };
-        }));
-
-        // Update currentGroups with the new groups
+          });
+        }
+        
         currentGroups = newGroups;
+        console.log('Updated groups with scores:', currentGroups);
       } else {
         const error = await response.json();
         alert('Failed to create groups. Please try again.');
       }
     } catch (error) {
+      console.error('Error in handleRandomize:', error);
       alert('An error occurred while creating groups.');
     } finally {
       randomizing = false;
@@ -201,27 +199,41 @@
   const flipDurationMs = 200;
 
   async function calculateGroupScore(students: Array<{ id: number }>) {
+    if (!students || students.length < 2) return 0;
+    
     try {
-        // Get all pairs in the group
         let score = 0;
+        // Get all pairs in the group
         for (let i = 0; i < students.length; i++) {
             for (let j = i + 1; j < students.length; j++) {
-                const response = await fetch(
-                    `/api/class/${$page.params.id}/students/${students[i].id}/pairs/${students[j].id}`,
-                    {
-                        method: 'GET',
-                        headers: { 'Content-Type': 'application/json' }
-                    }
-                );
-                if (response.ok) {
-                    const { pairCount } = await response.json();
-                    score += pairCount;
+                const url = `/api/class/${$page.params.id}/students/${students[i].id}/pairs/${students[j].id}`;
+                console.log('Fetching pair score from:', url);
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    console.error('Failed to fetch pair score:', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        url
+                    });
+                    continue;
                 }
+                
+                const data = await response.json();
+                console.log('Pair score response:', {
+                    student1: students[i].id,
+                    student2: students[j].id,
+                    pairCount: data.pairCount
+                });
+                
+                score += data.pairCount || 0;
             }
         }
+        console.log('Final group score:', score, 'for students:', students.map(s => s.id));
         return score;
     } catch (error) {
-        console.error('Error calculating score:', error);
+        console.error('Error calculating group score:', error);
         return 0;
     }
   }
@@ -365,29 +377,38 @@
       lastName: item.lastName
     }));
     
-    // Update the target group
-    newGroups[targetGroupIndex] = {
-      ...newGroups[targetGroupIndex],
-      students: updatedStudents
-    };
-
-    // Calculate scores
-    if (dragSourceGroupIndex !== null && dragSourceGroupIndex !== targetGroupIndex) {
-      newGroups[dragSourceGroupIndex].score = await calculateGroupScore(
-        newGroups[dragSourceGroupIndex].students
-      );
+    // Calculate scores for affected groups
+    if (dragSourceGroupIndex !== null) {
+        // Calculate score for source group
+        const sourceGroupScore = await calculateGroupScore(
+            newGroups[dragSourceGroupIndex].students
+        );
+        newGroups[dragSourceGroupIndex] = {
+            ...newGroups[dragSourceGroupIndex],
+            score: sourceGroupScore
+        };
+        
+        // Calculate score for target group
+        const targetGroupScore = await calculateGroupScore(updatedStudents);
+        newGroups[targetGroupIndex] = {
+            ...newGroups[targetGroupIndex],
+            students: updatedStudents,
+            score: targetGroupScore
+        };
+        
+        console.log('Updated group scores after drag:', {
+            sourceGroup: sourceGroupScore,
+            targetGroup: targetGroupScore
+        });
     }
-    newGroups[targetGroupIndex].score = await calculateGroupScore(updatedStudents);
     
-    // Reset all tracking
+    // Reset tracking variables
     dragSourceGroupIndex = null;
     draggedStudent = null;
     originalGroupState = null;
     studentPlacements.clear();
     
     currentGroups = newGroups;
-    
-    // Verify final state
     checkForDuplicates();
   }
 
@@ -519,13 +540,14 @@
 
             <!-- Update the slider section -->
             <div class="flex-1">
-              <label class="block text-sm font-medium text-gray-700 mb-1">
+              <label for="excess-placement" class="block text-sm font-medium text-gray-700 mb-1">
                 Excess Student Placement
               </label>
               <div class="flex items-center gap-4">
                 <span class="text-sm text-gray-600">Undersize</span>
                 <label class="relative inline-flex items-center cursor-pointer">
                   <input 
+                    id="excess-placement"
                     type="checkbox" 
                     bind:checked={preferOversizeGroups}
                     class="sr-only peer"

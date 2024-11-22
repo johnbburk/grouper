@@ -1,52 +1,48 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
+import { eq, and, or } from 'drizzle-orm';
 import { pairingMatrix } from '$lib/server/db/schema';
-import { and, eq } from 'drizzle-orm';
-import type { RequestEvent } from './$types';
 
-export async function GET({ params }: RequestEvent) {
-      const classId = parseInt(params.id);
-      const student1Id = parseInt(params.studentId);
-      const student2Id = parseInt(params.partnerId);
-
+export const GET: RequestHandler = async ({ params }) => {
       try {
-            // Try to find the pair count in either direction
-            const [pairData] = await db
-                  .select()
+            const { id: classId, studentId, partnerId } = params;
+
+            // Query the pairing matrix - need to check both directions since 
+            // the pair could be stored as (student1, student2) or (student2, student1)
+            const pairs = await db
+                  .select({
+                        pairCount: pairingMatrix.pairCount
+                  })
                   .from(pairingMatrix)
                   .where(
                         and(
-                              eq(pairingMatrix.classId, classId),
-                              eq(pairingMatrix.studentId1, student1Id),
-                              eq(pairingMatrix.studentId2, student2Id)
+                              eq(pairingMatrix.classId, parseInt(classId)),
+                              or(
+                                    and(
+                                          eq(pairingMatrix.studentId1, parseInt(studentId)),
+                                          eq(pairingMatrix.studentId2, parseInt(partnerId))
+                                    ),
+                                    and(
+                                          eq(pairingMatrix.studentId1, parseInt(partnerId)),
+                                          eq(pairingMatrix.studentId2, parseInt(studentId))
+                                    )
+                              )
                         )
                   );
 
-            // If no record exists, check the reverse order
-            if (!pairData) {
-                  const [reversePairData] = await db
-                        .select()
-                        .from(pairingMatrix)
-                        .where(
-                              and(
-                                    eq(pairingMatrix.classId, classId),
-                                    eq(pairingMatrix.studentId1, student2Id),
-                                    eq(pairingMatrix.studentId2, student1Id)
-                              )
-                        );
-
-                  return json({
-                        pairCount: reversePairData?.pairCount ?? 0,
-                        lastPaired: reversePairData?.lastPaired ?? null
-                  });
-            }
-
-            return json({
-                  pairCount: pairData.pairCount,
-                  lastPaired: pairData.lastPaired
+            // Get the pair count directly from the matrix
+            const pairCount = pairs[0]?.pairCount ?? 0;
+            console.log('Found pair count:', {
+                  classId,
+                  studentId,
+                  partnerId,
+                  pairCount
             });
-      } catch (error) {
-            console.error('Error getting pair count:', error);
-            return json({ error: 'Failed to get pair count' }, { status: 500 });
+
+            return json({ pairCount });
+      } catch (e) {
+            console.error('Error fetching pair count:', e);
+            throw error(500, 'Failed to fetch pair count');
       }
-} 
+}; 

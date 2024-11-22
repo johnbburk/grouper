@@ -1,43 +1,69 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { studyGroups, groupAssignments } from '$lib/server/db/schema';
-import type { RequestEvent } from './$types';
+import { pairingMatrix, studentPairs } from '$lib/server/db/schema';
+import { eq, and, or } from 'drizzle-orm';
 
-export async function POST({ params, request }: RequestEvent) {
-      const classId = parseInt(params.id);
-      const { groups, nonStandardStudentIds = [] } = await request.json();
-
+export const POST: RequestHandler = async ({ params, request }) => {
       try {
-            // Create a new study group
-            const [groupResult] = await db
-                  .insert(studyGroups)
-                  .values({
-                        classId,
-                        name: `Group ${new Date().toLocaleTimeString()}`,
-                        createdAt: new Date().toISOString()
-                  })
-                  .returning();
+            const { groups, nonStandardStudentIds } = await request.json();
+            const classId = parseInt(params.id);
 
-            // Create group assignments with subgroup numbers
-            await Promise.all(
-                  groups.map(async (group, groupIndex) => {
-                        const subgroupNumber = groupIndex + 1;
-                        const groupAssignmentPromises = group.students.map(student =>
-                              db.insert(groupAssignments)
-                                    .values({
-                                          groupId: groupResult.id,
-                                          studentId: student.id,
-                                          date: new Date().toISOString(),
-                                          subgroupNumber
-                                    })
-                        );
-                        return Promise.all(groupAssignmentPromises);
-                  })
-            );
+            for (const group of groups) {
+                  const students = group.students;
+
+                  for (let i = 0; i < students.length; i++) {
+                        for (let j = i + 1; j < students.length; j++) {
+                              const student1Id = students[i].id;
+                              const student2Id = students[j].id;
+
+                              // Find existing matrix entry (in either direction)
+                              const existingEntry = await db
+                                    .select()
+                                    .from(pairingMatrix)
+                                    .where(
+                                          and(
+                                                eq(pairingMatrix.classId, classId),
+                                                or(
+                                                      and(
+                                                            eq(pairingMatrix.studentId1, student1Id),
+                                                            eq(pairingMatrix.studentId2, student2Id)
+                                                      ),
+                                                      and(
+                                                            eq(pairingMatrix.studentId1, student2Id),
+                                                            eq(pairingMatrix.studentId2, student1Id)
+                                                      )
+                                                )
+                                          )
+                                    )
+                                    .limit(1);
+
+                              if (existingEntry.length > 0) {
+                                    // Update existing entry
+                                    await db
+                                          .update(pairingMatrix)
+                                          .set({
+                                                pairCount: existingEntry[0].pairCount + 1,
+                                                lastPaired: new Date().toISOString()
+                                          })
+                                          .where(eq(pairingMatrix.id, existingEntry[0].id));
+                              } else {
+                                    // Create new entry
+                                    await db.insert(pairingMatrix).values({
+                                          classId,
+                                          studentId1: student1Id,
+                                          studentId2: student2Id,
+                                          pairCount: 1,
+                                          lastPaired: new Date().toISOString()
+                                    });
+                              }
+                        }
+                  }
+            }
 
             return json({ success: true });
-      } catch (error) {
-            console.error('Error saving groups:', error);
-            return json({ error: 'Failed to save groups' }, { status: 500 });
+      } catch (e) {
+            console.error('Error saving groups:', e);
+            throw error(500, 'Failed to save groups');
       }
-} 
+}; 

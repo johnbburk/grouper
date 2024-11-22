@@ -46,4 +46,13 @@ export const groupingRules = sqliteTable('grouping_rules', {
 	createdAt: text('created_at').notNull()
 });
 
+export const studentPairs = sqliteTable('student_pairs', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	classId: integer('class_id').notNull().references(() => classes.id),
+	student1Id: integer('student1_id').notNull(),
+	student2Id: integer('student2_id').notNull(),
+	groupId: integer('group_id').notNull(),
+	createdAt: text('created_at').notNull()
+});
+
 export type GroupingRule = typeof groupingRules.$inferSelect;
