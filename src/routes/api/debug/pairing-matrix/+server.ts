@@ -5,10 +5,7 @@ import { pairingMatrix } from '$lib/server/db/schema';
 
 export const GET: RequestHandler = async () => {
       try {
-            const matrix = await db
-                  .select()
-                  .from(pairingMatrix);
-
+            const matrix = await db.select().from(pairingMatrix);
             return json({
                   count: matrix.length,
                   entries: matrix

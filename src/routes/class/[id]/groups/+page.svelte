@@ -26,7 +26,6 @@
   let saveSuccess = false;
   let saveError = false;
   
-  // Add this function to sort the students list
   const sortedStudents = [...data.students].sort((a, b) => {
     const nameA = `${a.lastName}, ${a.firstName}`.toLowerCase();
     const nameB = `${b.lastName}, ${b.firstName}`.toLowerCase();
@@ -39,7 +38,7 @@
     } else {
       selectedStudents.add(studentId);
     }
-    selectedStudents = selectedStudents; // Trigger reactivity
+    selectedStudents = selectedStudents;
   }
   
   function selectAll() {
@@ -74,8 +73,6 @@
       
       if (response.ok) {
         const result = await response.json();
-        
-        // Calculate scores for each group
         const newGroups = [];
         for (const group of result.groups) {
           const score = await calculateGroupScore(group.students);
@@ -84,9 +81,7 @@
             score
           });
         }
-        
         currentGroups = newGroups;
-        console.log('Updated groups with scores:', currentGroups);
       } else {
         const error = await response.json();
         alert('Failed to create groups. Please try again.');
@@ -203,12 +198,9 @@
     
     try {
         let score = 0;
-        // Get all pairs in the group
         for (let i = 0; i < students.length; i++) {
             for (let j = i + 1; j < students.length; j++) {
                 const url = `/api/class/${$page.params.id}/students/${students[i].id}/pairs/${students[j].id}`;
-                console.log('Fetching pair score from:', url);
-                
                 const response = await fetch(url);
                 
                 if (!response.ok) {
@@ -221,16 +213,9 @@
                 }
                 
                 const data = await response.json();
-                console.log('Pair score response:', {
-                    student1: students[i].id,
-                    student2: students[j].id,
-                    pairCount: data.pairCount
-                });
-                
                 score += data.pairCount || 0;
             }
         }
-        console.log('Final group score:', score, 'for students:', students.map(s => s.id));
         return score;
     } catch (error) {
         console.error('Error calculating group score:', error);
@@ -238,29 +223,20 @@
     }
   }
 
-  // Modify the createDnDItems function to use a more unique identifier
   function createDnDItems(students: Array<{ id: number; firstName: string; lastName: string }>, groupIndex: number) {
     return students
       .filter(student => student.id !== undefined && typeof student.id === 'number')
       .map(student => ({
         ...student,
-        uniqueId: `${groupIndex}-${student.id}-${Math.random()}` // Add randomness to ensure uniqueness during drag
+        uniqueId: `${groupIndex}-${student.id}-${Math.random()}`
       }));
   }
 
-  // Add this to track the source group during drag operations
   let dragSourceGroupIndex: number | null = null;
-
-  // Add this to track the dragged student
   let draggedStudent: { id: number; firstName: string; lastName: string } | null = null;
-
-  // Add this to track the original group state before drag
   let originalGroupState: typeof currentGroups | null = null;
+  let studentPlacements = new Map<number, number>();
 
-  // Add this to track all student placements
-  let studentPlacements = new Map<number, number>(); // studentId -> groupIndex
-
-  // Add these interfaces at the top of the script section
   interface DndStudent {
     id: number;
     firstName: string;
@@ -275,14 +251,11 @@
     };
   }
 
-  // Update the handlers with proper types
   async function handleDndConsider(e: CustomEvent<DndEvent>, targetGroupIndex: number) {
-    // If this is the first consider event of a drag, set up tracking
     if (dragSourceGroupIndex === null) {
       dragSourceGroupIndex = targetGroupIndex;
       originalGroupState = JSON.parse(JSON.stringify(currentGroups));
       
-      // Initialize student placements
       studentPlacements.clear();
       currentGroups.forEach((group, groupIndex) => {
         group.students.forEach(student => {
@@ -290,14 +263,12 @@
         });
       });
       
-      // Find which student is being dragged
       const currentStudents = currentGroups[targetGroupIndex].students;
       draggedStudent = currentStudents.find(s => !e.detail.items.some(item => item.id === s.id)) || null;
     }
     
     const newGroups = [...currentGroups];
     
-    // If we're back in the original group and not over a new group, restore the original state
     if (dragSourceGroupIndex === targetGroupIndex && originalGroupState) {
       newGroups[targetGroupIndex] = {
         ...originalGroupState[targetGroupIndex]
@@ -306,7 +277,6 @@
       return;
     }
     
-    // Filter and validate items
     let validItems = e.detail.items
       .filter(item => 
         item.id !== undefined && 
@@ -317,11 +287,9 @@
         index === self.findIndex(t => t.id === item.id)
       );
 
-    // Update student placements and remove from other groups
     validItems.forEach(item => {
       const previousGroupIndex = studentPlacements.get(item.id);
       if (previousGroupIndex !== undefined && previousGroupIndex !== targetGroupIndex) {
-        // Remove student from previous group
         newGroups[previousGroupIndex] = {
           ...newGroups[previousGroupIndex],
           students: newGroups[previousGroupIndex].students.filter(s => s.id !== item.id)
@@ -330,7 +298,6 @@
       studentPlacements.set(item.id, targetGroupIndex);
     });
 
-    // Update the target group
     newGroups[targetGroupIndex] = {
       ...newGroups[targetGroupIndex],
       students: validItems.map(item => ({
@@ -341,14 +308,10 @@
     };
 
     currentGroups = newGroups;
-    
-    // Verify no duplicates
     checkForDuplicates();
   }
 
-  // Update the handleDndFinalize function
   async function handleDndFinalize(e: CustomEvent<DndEvent>, targetGroupIndex: number) {
-    // If we're finalizing in the same group we started in, restore the original state
     if (dragSourceGroupIndex === targetGroupIndex && originalGroupState) {
       currentGroups = originalGroupState;
       dragSourceGroupIndex = null;
@@ -358,7 +321,6 @@
       return;
     }
     
-    // Otherwise proceed with normal finalize operation
     const newGroups = [...currentGroups];
     
     let validItems = e.detail.items
@@ -377,9 +339,7 @@
       lastName: item.lastName
     }));
     
-    // Calculate scores for affected groups
     if (dragSourceGroupIndex !== null) {
-        // Calculate score for source group
         const sourceGroupScore = await calculateGroupScore(
             newGroups[dragSourceGroupIndex].students
         );
@@ -388,21 +348,14 @@
             score: sourceGroupScore
         };
         
-        // Calculate score for target group
         const targetGroupScore = await calculateGroupScore(updatedStudents);
         newGroups[targetGroupIndex] = {
             ...newGroups[targetGroupIndex],
             students: updatedStudents,
             score: targetGroupScore
         };
-        
-        console.log('Updated group scores after drag:', {
-            sourceGroup: sourceGroupScore,
-            targetGroup: targetGroupScore
-        });
     }
     
-    // Reset tracking variables
     dragSourceGroupIndex = null;
     draggedStudent = null;
     originalGroupState = null;
@@ -412,7 +365,6 @@
     checkForDuplicates();
   }
 
-  // Add a utility function to check for duplicates across all groups
   function checkForDuplicates() {
     const allStudents = new Set();
     let duplicates: Array<{
@@ -440,20 +392,16 @@
     }
   }
 
-  // Update the reactive statement to include more detailed logging
   $: if (currentGroups) {
     checkForDuplicates();
   }
 
-  onMount(() => {
-    // Component mounted - no logging needed
-  });
+  onMount(() => {});
 
   function isNonStandardGroup(group: typeof currentGroups[0], targetSize: number): boolean {
     return group.students.length !== targetSize;
   }
 
-  // Add to your script section
   let preferOversizeGroups = false;
 </script>
 

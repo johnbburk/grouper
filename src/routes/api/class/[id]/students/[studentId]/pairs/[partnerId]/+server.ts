@@ -8,8 +8,6 @@ export const GET: RequestHandler = async ({ params }) => {
       try {
             const { id: classId, studentId, partnerId } = params;
 
-            // Query the pairing matrix - need to check both directions since 
-            // the pair could be stored as (student1, student2) or (student2, student1)
             const pairs = await db
                   .select({
                         pairCount: pairingMatrix.pairCount
@@ -31,15 +29,7 @@ export const GET: RequestHandler = async ({ params }) => {
                         )
                   );
 
-            // Get the pair count directly from the matrix
             const pairCount = pairs[0]?.pairCount ?? 0;
-            console.log('Found pair count:', {
-                  classId,
-                  studentId,
-                  partnerId,
-                  pairCount
-            });
-
             return json({ pairCount });
       } catch (e) {
             console.error('Error fetching pair count:', e);

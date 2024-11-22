@@ -17,7 +17,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
                               const student1Id = students[i].id;
                               const student2Id = students[j].id;
 
-                              // Find existing matrix entry (in either direction)
                               const existingEntry = await db
                                     .select()
                                     .from(pairingMatrix)
@@ -39,7 +38,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
                                     .limit(1);
 
                               if (existingEntry.length > 0) {
-                                    // Update existing entry
                                     await db
                                           .update(pairingMatrix)
                                           .set({
@@ -48,7 +46,6 @@ export const POST: RequestHandler = async ({ params, request }) => {
                                           })
                                           .where(eq(pairingMatrix.id, existingEntry[0].id));
                               } else {
-                                    // Create new entry
                                     await db.insert(pairingMatrix).values({
                                           classId,
                                           studentId1: student1Id,
