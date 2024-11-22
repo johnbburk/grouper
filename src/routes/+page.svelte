@@ -24,27 +24,44 @@
     activeClassName = className;
     
     try {
-      const response = await fetch(`/api/class/${classId}/groups`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          groupSize: quickGroupSizes[classId],
-          preferOversizeGroups: true
-        })
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        currentQuickGroups = result.groups;
-        showQuickGroupsModal = true;
-      } else {
-        alert('Failed to create groups. Please try again.');
-      }
+        // First, fetch the students for this class
+        const studentsResponse = await fetch(`/api/class/${classId}/students`);
+        if (!studentsResponse.ok) {
+            throw new Error('Failed to fetch students');
+        }
+        const students = await studentsResponse.json();
+        const studentIds = students.map((s: any) => s.id);
+
+        console.log('Creating groups with:', {
+            groupSize: quickGroupSizes[classId],
+            studentIds,
+            preferOversizeGroups: true
+        });
+
+        const response = await fetch(`/api/class/${classId}/groups`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                groupSize: quickGroupSizes[classId],
+                studentIds,
+                preferOversizeGroups: true
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            currentQuickGroups = result.groups;
+            showQuickGroupsModal = true;
+        } else {
+            const error = await response.json();
+            console.error('Failed to create groups:', error);
+            alert('Failed to create groups. Please try again.');
+        }
     } catch (error) {
-      console.error('Error creating quick groups:', error);
-      alert('An error occurred while creating groups.');
+        console.error('Error creating quick groups:', error);
+        alert('An error occurred while creating groups.');
     }
   }
   
@@ -57,7 +74,6 @@
     if (!activeClassId) return;
     
     try {
-        // Save the groups
         const saveResponse = await fetch(`/api/class/${activeClassId}/groups/save`, {
             method: 'POST',
             headers: {
@@ -73,7 +89,10 @@
             throw new Error('Failed to save groups');
         }
 
-        // Don't navigate away, let the modal handle the display
+        // Store the groups in localStorage before navigating
+        localStorage.setItem('displayGroups', JSON.stringify(currentQuickGroups));
+        window.location.href = `/class/${activeClassId}/groups?display=true`;
+        
         return true;
     } catch (error) {
         console.error('Error saving groups:', error);

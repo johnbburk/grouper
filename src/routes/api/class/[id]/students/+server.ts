@@ -1,6 +1,22 @@
 import { json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
 import { students } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
+
+export const GET: RequestHandler = async ({ params }) => {
+      try {
+            const classStudents = await db
+                  .select()
+                  .from(students)
+                  .where(eq(students.classId, parseInt(params.id)));
+
+            return json(classStudents);
+      } catch (error) {
+            console.error('Error fetching students:', error);
+            return json({ error: 'Failed to fetch students' }, { status: 500 });
+      }
+};
 
 export async function POST({ params, request }) {
       try {

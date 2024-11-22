@@ -87,7 +87,7 @@
         
         const newGroups = [];
         for (const group of result.groups) {
-          const score = await calculateGroupScore(group.students, $page.params.id);
+          const score = await calculateGroupScore(group.students, parseInt($page.params.id));
           newGroups.push({
             ...group,
             score
@@ -352,7 +352,17 @@
     checkForDuplicates(currentGroups);
   }
 
-  onMount(() => {});
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('display') === 'true') {
+        const storedGroups = localStorage.getItem('displayGroups');
+        if (storedGroups) {
+            currentGroups = JSON.parse(storedGroups);
+            localStorage.removeItem('displayGroups'); // Clean up after loading
+        }
+        showDisplayMode = true;
+    }
+  });
 
   let preferOversizeGroups = false;
 </script>
@@ -682,28 +692,31 @@
           </div>
         {/if}
 
-        <div>
-          <h3 class="text-lg font-medium mb-2 text-green-600">Previous Groups:</h3>
-          <div class="grid grid-cols-2 gap-4">
-            {#each [...studentHistory.groupHistory].sort((a, b) => 
-              new Date(b.date).getTime() - new Date(a.date).getTime()
-            ) as group}
-              <div class="text-sm p-2 bg-white rounded border">
-                <div class="flex justify-between items-start mb-1">
-                  <span class="font-medium">{group.name}</span>
-                  <span class="text-gray-500 text-xs">
-                    {new Date(group.date).toLocaleString('en-US', {
-                      year: 'numeric',
-                      month: '2-digit',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true
-                    })}
-                  </span>
+        <div class="mt-4">
+          <h3 class="text-lg font-medium text-green-600">Previous Groups:</h3>
+          <div class="space-y-2 mt-2">
+            {#each studentHistory.groupHistory as group}
+              <div class="bg-white p-3 rounded border">
+                <div class="flex justify-between items-start">
+                  <div>
+                    <span class="font-medium">{group.name}</span>
+                    <div class="text-sm text-gray-600 mt-1">
+                      {new Date(group.date).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div class="text-sm text-gray-500">
+                    Size: {group.size}
+                  </div>
                 </div>
-                <div class="text-gray-600 text-xs">
-                  {group.members.join(', ')}
+                <div class="mt-2 text-sm">
+                  <div class="font-medium text-gray-600">Members:</div>
+                  <ul class="mt-1 space-y-1">
+                    {#each group.allMembers as member}
+                      <li class={member.id === selectedStudentHistory.id ? 'font-semibold text-blue-600' : ''}>
+                        {member.name}
+                      </li>
+                    {/each}
+                  </ul>
                 </div>
               </div>
             {/each}

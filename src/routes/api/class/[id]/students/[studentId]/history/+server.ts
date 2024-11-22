@@ -1,122 +1,91 @@
-import { json } from '@sveltejs/kit';
+import { error, json } from '@sveltejs/kit';
+import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { students, groupAssignments, studyGroups, pairingMatrix } from '$lib/server/db/schema';
-import { eq, and, sql } from 'drizzle-orm';
-import type { RequestEvent } from './$types';
+import { students, pairingMatrix } from '$lib/server/db/schema';
+import { eq, and, or } from 'drizzle-orm';
 
-export async function GET({ params }: RequestEvent) {
-      const classId = parseInt(params.id);
-      const studentId = parseInt(params.studentId);
-
+export const GET: RequestHandler = async ({ params }) => {
       try {
-            // Get all students in the class
-            const classmates = await db
+            const { id: classId, studentId } = params;
+            const parsedClassId = parseInt(classId);
+            const parsedStudentId = parseInt(studentId);
+
+            const studentData = await db
                   .select()
                   .from(students)
-                  .where(eq(students.classId, classId));
+                  .where(
+                        and(
+                              eq(students.id, parsedStudentId),
+                              eq(students.classId, parsedClassId)
+                        )
+                  )
+                  .limit(1);
 
-            // Get all pairing data for this student
+            if (!studentData.length) {
+                  throw error(404, 'Student not found');
+            }
+
+            const classStudents = await db
+                  .select()
+                  .from(students)
+                  .where(eq(students.classId, parsedClassId));
+
             const pairings = await db
                   .select()
                   .from(pairingMatrix)
                   .where(
-                        sql`(${pairingMatrix.studentId1} = ${studentId} OR ${pairingMatrix.studentId2} = ${studentId}) 
-                    AND ${pairingMatrix.classId} = ${classId}`
+                        and(
+                              eq(pairingMatrix.classId, parsedClassId),
+                              or(
+                                    eq(pairingMatrix.studentId1, parsedStudentId),
+                                    eq(pairingMatrix.studentId2, parsedStudentId)
+                              )
+                        )
                   );
 
-            // Get student's group history
-            const groupHistory = await db
-                  .select({
-                        groupId: studyGroups.id,
-                        name: studyGroups.name,
-                        createdAt: studyGroups.createdAt
-                  })
-                  .from(groupAssignments)
-                  .innerJoin(studyGroups, eq(groupAssignments.groupId, studyGroups.id))
-                  .where(eq(groupAssignments.studentId, studentId))
-                  .orderBy(sql`created_at DESC`);
+            const history = JSON.parse(studentData[0].groupingHistory || '[]');
+            const groupedStudentIds = new Set();
 
-            // Process the data
-            const groupedStudents = classmates
-                  .filter(c => c.id !== studentId)
-                  .map(classmate => {
-                        const pairData = pairings.find(p =>
-                              (p.studentId1 === classmate.id && p.studentId2 === studentId) ||
-                              (p.studentId1 === studentId && p.studentId2 === classmate.id)
-                        );
-                        return {
-                              id: classmate.id,
-                              firstName: classmate.firstName,
-                              lastName: classmate.lastName,
-                              groupCount: pairData?.pairCount ?? 0
-                        };
-                  })
-                  .filter(s => s.groupCount > 0)
-                  .sort((a, b) => b.groupCount - a.groupCount);
+            pairings.forEach(pair => {
+                  const otherId = pair.studentId1 === parsedStudentId ? pair.studentId2 : pair.studentId1;
+                  groupedStudentIds.add(otherId);
+            });
 
-            const neverGrouped = classmates
-                  .filter(c => c.id !== studentId)
-                  .filter(c => !groupedStudents.some(g => g.id === c.id))
-                  .map(c => ({
-                        id: c.id,
-                        firstName: c.firstName,
-                        lastName: c.lastName,
-                        groupCount: 0
-                  }));
+            const neverGrouped = classStudents.filter(s =>
+                  s.id !== parsedStudentId && !groupedStudentIds.has(s.id)
+            ).map(s => ({
+                  id: s.id,
+                  firstName: s.firstName,
+                  lastName: s.lastName,
+                  groupCount: 0
+            }));
 
-            // Get the student's non-standard grouping count
-            const [student] = await db
-                  .select()
-                  .from(students)
-                  .where(eq(students.id, studentId));
+            const groupedStudents = Array.from(groupedStudentIds).map(id => {
+                  const student = classStudents.find(s => s.id === id);
+                  const pairData = pairings.find(p =>
+                        (p.studentId1 === id && p.studentId2 === parsedStudentId) ||
+                        (p.studentId2 === id && p.studentId1 === parsedStudentId)
+                  );
+                  return {
+                        id,
+                        firstName: student?.firstName || '',
+                        lastName: student?.lastName || '',
+                        groupCount: pairData?.pairCount || 0
+                  };
+            });
 
-            // For each group, get only the students who were in the same group
-            const groupsWithMembers = await Promise.all(
-                  groupHistory.map(async (group) => {
-                        // First get this student's subgroup number
-                        const [studentAssignment] = await db
-                              .select()
-                              .from(groupAssignments)
-                              .where(
-                                    and(
-                                          eq(groupAssignments.groupId, group.groupId),
-                                          eq(groupAssignments.studentId, studentId)
-                                    )
-                              );
-
-                        // Then get all students in the same subgroup
-                        const groupMembers = await db
-                              .select({
-                                    student: students
-                              })
-                              .from(groupAssignments)
-                              .innerJoin(students, eq(groupAssignments.studentId, students.id))
-                              .where(
-                                    and(
-                                          eq(groupAssignments.groupId, group.groupId),
-                                          eq(groupAssignments.subgroupNumber, studentAssignment.subgroupNumber)
-                                    )
-                              );
-
-                        return {
-                              id: group.groupId,
-                              name: `Group ${studentAssignment.subgroupNumber}`,
-                              date: new Date(group.createdAt).toLocaleString(),
-                              members: groupMembers
-                                    .map(m => `${m.student.lastName}, ${m.student.firstName}`)
-                                    .sort((a, b) => a.localeCompare(b))
-                        };
-                  })
-            );
+            const filteredHistory = history.filter((group: any) => {
+                  return group.allMembers?.some((member: any) => member.id === parsedStudentId);
+            });
 
             return json({
                   neverGrouped,
                   groupedStudents,
-                  groupHistory: groupsWithMembers,
-                  nonStandardGroupings: student?.nonStandardGroupings ?? 0
+                  groupHistory: filteredHistory,
+                  nonStandardGroupings: studentData[0].nonStandardGroupings || 0
             });
-      } catch (error) {
-            console.error('Error getting student history:', error);
-            return json({ error: 'Failed to get student history' }, { status: 500 });
+      } catch (e) {
+            console.error('Error fetching student history:', e);
+            throw error(500, 'Failed to fetch student history');
       }
-} 
+}; 

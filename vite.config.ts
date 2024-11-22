@@ -11,5 +11,13 @@ export default defineConfig({
 	},
 	optimizeDeps: {
 		exclude: ['svelte-dnd-action']
+	},
+	build: {
+		rollupOptions: {
+			external: ['@node-rs/argon2']
+		}
+	},
+	ssr: {
+		noExternal: ['@node-rs/argon2']
 	}
 });

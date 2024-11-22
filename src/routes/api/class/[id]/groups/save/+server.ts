@@ -1,21 +1,57 @@
 import { error, json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { pairingMatrix, studentPairs } from '$lib/server/db/schema';
+import { pairingMatrix, students as studentsTable } from '$lib/server/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 
 export const POST: RequestHandler = async ({ params, request }) => {
       try {
             const { groups, nonStandardStudentIds } = await request.json();
             const classId = parseInt(params.id);
+            const timestamp = new Date().toISOString();
 
             for (const group of groups) {
-                  const students = group.students;
+                  const groupStudents = group.students;
 
-                  for (let i = 0; i < students.length; i++) {
-                        for (let j = i + 1; j < students.length; j++) {
-                              const student1Id = students[i].id;
-                              const student2Id = students[j].id;
+                  for (const student of groupStudents) {
+                        const currentStudent = await db
+                              .select()
+                              .from(studentsTable)
+                              .where(eq(studentsTable.id, student.id))
+                              .limit(1);
+
+                        if (currentStudent.length > 0) {
+                              const history = JSON.parse(currentStudent[0].groupingHistory || '[]');
+
+                              // Create a more detailed group history entry
+                              const groupEntry = {
+                                    id: group.id,
+                                    name: group.name,
+                                    date: timestamp,
+                                    members: groupStudents
+                                          .filter(s => s.id !== student.id)
+                                          .map(s => `${s.lastName}, ${s.firstName}`),
+                                    allMembers: groupStudents.map(s => ({
+                                          id: s.id,
+                                          name: `${s.lastName}, ${s.firstName}`
+                                    })),
+                                    size: groupStudents.length
+                              };
+
+                              history.push(groupEntry);
+
+                              await db
+                                    .update(studentsTable)
+                                    .set({ groupingHistory: JSON.stringify(history) })
+                                    .where(eq(studentsTable.id, student.id));
+                        }
+                  }
+
+                  // Update pairing matrix
+                  for (let i = 0; i < groupStudents.length; i++) {
+                        for (let j = i + 1; j < groupStudents.length; j++) {
+                              const student1Id = groupStudents[i].id;
+                              const student2Id = groupStudents[j].id;
 
                               const existingEntry = await db
                                     .select()
@@ -42,7 +78,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
                                           .update(pairingMatrix)
                                           .set({
                                                 pairCount: existingEntry[0].pairCount + 1,
-                                                lastPaired: new Date().toISOString()
+                                                lastPaired: timestamp
                                           })
                                           .where(eq(pairingMatrix.id, existingEntry[0].id));
                               } else {
@@ -51,7 +87,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
                                           studentId1: student1Id,
                                           studentId2: student2Id,
                                           pairCount: 1,
-                                          lastPaired: new Date().toISOString()
+                                          lastPaired: timestamp
                                     });
                               }
                         }
