@@ -19,7 +19,7 @@ export const POST: RequestHandler = async ({ params }) => {
                   .from(students)
                   .where(eq(students.classId, classId));
 
-            // Reset each student's history individually
+            // Reset each student's history and non-standard groupings count
             for (const student of classStudents) {
                   await db
                         .update(students)
@@ -41,9 +41,12 @@ export const POST: RequestHandler = async ({ params }) => {
                   .from(pairingMatrix)
                   .where(eq(pairingMatrix.classId, classId));
 
+            // Log verification results
             console.log('Clear operation results:', {
                   studentsCleared: verifyStudents.every(s => s.groupingHistory === '[]'),
-                  matrixCleared: verifyMatrix.length === 0
+                  matrixCleared: verifyMatrix.length === 0,
+                  studentsChecked: verifyStudents.length,
+                  studentsWithHistory: verifyStudents.filter(s => s.groupingHistory !== '[]').length
             });
 
             return json({

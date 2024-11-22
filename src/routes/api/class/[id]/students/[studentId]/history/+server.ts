@@ -43,40 +43,57 @@ export const GET: RequestHandler = async ({ params }) => {
                         )
                   );
 
-            const history = JSON.parse(studentData[0].groupingHistory || '[]');
-            const groupedStudentIds = new Set();
+            let history: any[] = [];
+            try {
+                  history = JSON.parse(studentData[0].groupingHistory || '[]');
+            } catch (e) {
+                  console.error('Error parsing group history:', e);
+                  history = [];
+            }
 
+            const groupedStudentIds = new Set<number>();
             pairings.forEach(pair => {
                   const otherId = pair.studentId1 === parsedStudentId ? pair.studentId2 : pair.studentId1;
-                  groupedStudentIds.add(otherId);
+                  if (pair.pairCount > 0) {
+                        groupedStudentIds.add(otherId);
+                  }
             });
 
-            const neverGrouped = classStudents.filter(s =>
-                  s.id !== parsedStudentId && !groupedStudentIds.has(s.id)
-            ).map(s => ({
-                  id: s.id,
-                  firstName: s.firstName,
-                  lastName: s.lastName,
-                  groupCount: 0
-            }));
+            const neverGrouped = classStudents
+                  .filter(s => s.id !== parsedStudentId && !groupedStudentIds.has(s.id))
+                  .map(s => ({
+                        id: s.id,
+                        firstName: s.firstName,
+                        lastName: s.lastName,
+                        groupCount: 0
+                  }));
 
-            const groupedStudents = Array.from(groupedStudentIds).map(id => {
-                  const student = classStudents.find(s => s.id === id);
-                  const pairData = pairings.find(p =>
-                        (p.studentId1 === id && p.studentId2 === parsedStudentId) ||
-                        (p.studentId2 === id && p.studentId1 === parsedStudentId)
-                  );
-                  return {
-                        id,
-                        firstName: student?.firstName || '',
-                        lastName: student?.lastName || '',
-                        groupCount: pairData?.pairCount || 0
-                  };
-            });
+            const groupedStudents = Array.from(groupedStudentIds)
+                  .map(id => {
+                        const student = classStudents.find(s => s.id === id);
+                        const pairData = pairings.find(p =>
+                              (p.studentId1 === id && p.studentId2 === parsedStudentId) ||
+                              (p.studentId2 === id && p.studentId1 === parsedStudentId)
+                        );
+                        return {
+                              id,
+                              firstName: student?.firstName || '',
+                              lastName: student?.lastName || '',
+                              groupCount: pairData?.pairCount || 0
+                        };
+                  })
+                  .filter(s => s.groupCount > 0);
 
-            const filteredHistory = history.filter((group: any) => {
-                  return group.allMembers?.some((member: any) => member.id === parsedStudentId);
-            });
+            const filteredHistory = history
+                  .filter((group: any) => {
+                        return group.allMembers?.some((member: any) => member.id === parsedStudentId);
+                  })
+                  .map((group: any) => ({
+                        ...group,
+                        members: group.members || [],
+                        allMembers: group.allMembers || [],
+                        size: group.size || group.members?.length || 0
+                  }));
 
             return json({
                   neverGrouped,

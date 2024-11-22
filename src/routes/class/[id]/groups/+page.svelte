@@ -182,6 +182,11 @@
       name: string;
       date: string;
       members: string[];
+      allMembers: Array<{
+        id: number;
+        name: string;
+      }>;
+      size: number;
     }>;
     nonStandardGroupings: number;
   } | null = null;

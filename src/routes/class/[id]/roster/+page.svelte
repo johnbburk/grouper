@@ -114,26 +114,27 @@
   }
 
   async function handleClearHistory() {
-    if (!confirm('WARNING: This will delete all previous groups and reset pairing history. Are you sure?')) {
-      return;
+    if (!confirm('Are you sure you want to clear all previous groups? This cannot be undone.')) {
+        return;
     }
 
     clearingHistory = true;
     try {
-      const response = await fetch(`/api/class/${data.class.id}/history/clear`, {
-        method: 'POST'
-      });
+        const response = await fetch(`/api/class/${$page.params.id}/students/clear-history`, {
+            method: 'POST'
+        });
 
-      if (response.ok) {
-        window.location.reload();
-      } else {
-        alert('Failed to clear history. Please try again.');
-      }
+        if (response.ok) {
+            alert('Group history cleared successfully');
+            await invalidateAll(); // Refresh the page data
+        } else {
+            alert('Failed to clear group history');
+        }
     } catch (error) {
-      console.error('Error clearing history:', error);
-      alert('An error occurred while clearing the history.');
+        console.error('Error clearing group history:', error);
+        alert('An error occurred while clearing group history');
     } finally {
-      clearingHistory = false;
+        clearingHistory = false;
     }
   }
 </script>
