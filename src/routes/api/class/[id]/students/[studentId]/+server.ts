@@ -1,19 +1,19 @@
 import { json } from '@sveltejs/kit';
-import { deleteStudent } from '$lib/server/db';
+import { db, deleteStudent } from '$lib/server/db';
 import type { RequestHandler } from './$types';
+import { students } from '$lib/server/db/schema';
+import { eq } from 'drizzle-orm';
 
-export const DELETE: RequestHandler = async ({ params }) => {
+export async function DELETE({ params }) {
+      const studentId = parseInt(params.studentId);
+
       try {
-            const studentId = parseInt(params.studentId);
-            const success = await deleteStudent(studentId);
+            await db.delete(students)
+                  .where(eq(students.id, studentId));
 
-            if (success) {
-                  return json({ success: true });
-            } else {
-                  return json({ error: 'Failed to delete student' }, { status: 500 });
-            }
+            return json({ success: true });
       } catch (error) {
             console.error('Error deleting student:', error);
             return json({ error: 'Failed to delete student' }, { status: 500 });
       }
-}; 
+}

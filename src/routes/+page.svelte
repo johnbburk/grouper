@@ -209,16 +209,14 @@
 
 <Modal
   showModal={showAddClassModal}
-  title="Add New Class"
+  closeModal={closeAddClassModal}
 >
   <AddClassForm closeModal={closeAddClassModal} />
 </Modal>
 
 <QuickGroupsModal
   showModal={showQuickGroupsModal}
-  classId={activeClassId}
   className={activeClassName}
-  groupSize={activeClassId ? quickGroupSizes[activeClassId] : 3}
   groups={currentQuickGroups}
   on:close={() => showQuickGroupsModal = false}
   on:reRandomize={handleReRandomize}
