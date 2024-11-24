@@ -36,7 +36,8 @@ export async function calculateGroupScore(students: Array<{ id: number }>, class
                         }
 
                         const data = await response.json();
-                        score += data.pairCount || 0;
+                        const pairCount = Math.max(0, data.pairCount);
+                        score += pairCount || 0;
                   }
             }
             return score;

@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"preview": "vite preview",
+		"preview": "vite preview --port 4173",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"format": "prettier --write .",
@@ -13,6 +13,8 @@
 		"test:unit": "vitest",
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright test",
+		"test:e2e:ui": "playwright test --ui",
+		"test:e2e:debug": "playwright test --debug",
 		"db:start": "docker compose up",
 		"db:push": "drizzle-kit push:sqlite",
 		"db:migrate": "tsx src/lib/server/db/migrate.ts",
@@ -56,6 +58,7 @@
 		"vitest": "^2.1.5"
 	},
 	"dependencies": {
+		"@faker-js/faker": "^9.2.0",
 		"better-sqlite3": "^9.0.0",
 		"dotenv": "^16.4.5",
 		"drizzle-orm": "^0.30.1",

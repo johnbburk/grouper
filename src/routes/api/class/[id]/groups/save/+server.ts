@@ -4,6 +4,13 @@ import { db } from '$lib/server/db';
 import { pairingMatrix, students as studentsTable } from '$lib/server/db/schema';
 import { eq, and, or } from 'drizzle-orm';
 
+// Define a type for the student object
+type Student = {
+      id: number;
+      lastName: string;
+      firstName: string;
+};
+
 export const POST: RequestHandler = async ({ params, request }) => {
       try {
             const { groups, nonStandardStudentIds } = await request.json();
@@ -29,9 +36,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
                                     name: group.name,
                                     date: timestamp,
                                     members: groupStudents
-                                          .filter(s => s.id !== student.id)
-                                          .map(s => `${s.lastName}, ${s.firstName}`),
-                                    allMembers: groupStudents.map(s => ({
+                                          .filter((s: Student) => s.id !== student.id)
+                                          .map((s: Student) => `${s.lastName}, ${s.firstName}`),
+                                    allMembers: groupStudents.map((s: Student) => ({
                                           id: s.id,
                                           name: `${s.lastName}, ${s.firstName}`
                                     })),

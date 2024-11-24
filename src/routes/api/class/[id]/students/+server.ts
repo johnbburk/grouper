@@ -48,4 +48,3 @@ export async function POST({ params, request }) {
             return json({ error: 'Failed to import students' }, { status: 500 });
       }
 }
-

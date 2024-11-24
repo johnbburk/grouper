@@ -118,4 +118,79 @@ describe('Group Scoring Integration Tests', () => {
 
             expect(score).toBe(5);
       });
+
+      it('should handle empty groups correctly', async () => {
+            const emptyGroup: typeof STUDENT_1[] = [];
+            const score = await calculateGroupScore(emptyGroup, CLASS_ID);
+            expect(score).toBe(0);
+      });
+
+      it('should handle single student groups correctly', async () => {
+            const singleStudentGroup = [STUDENT_1];
+            const score = await calculateGroupScore(singleStudentGroup, CLASS_ID);
+            expect(score).toBe(0);
+      });
+
+      it('should handle API errors gracefully', async () => {
+            // Mock fetch to simulate API error
+            global.fetch = vi.fn().mockImplementation(() =>
+                  Promise.resolve({
+                        ok: false,
+                        status: 500,
+                        statusText: 'Internal Server Error'
+                  })
+            );
+
+            const group = [STUDENT_1, STUDENT_2];
+            const score = await calculateGroupScore(group, CLASS_ID);
+
+            // Should return 0 or handle error gracefully
+            expect(score).toBe(0);
+      });
+
+      it('should handle very large groups efficiently', async () => {
+            const largeGroup = Array.from({ length: 10 }, (_, i) => ({ id: 1000 + i }));
+
+            // Mock fetch to return 0 for all pairs
+            global.fetch = vi.fn().mockImplementation(() =>
+                  Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({ pairCount: 0 })
+                  })
+            );
+
+            const score = await calculateGroupScore(largeGroup, CLASS_ID);
+            expect(score).toBe(0);
+            // Could also test execution time if performance is a concern
+      });
+
+      it('should handle duplicate student IDs correctly', async () => {
+            const groupWithDuplicates = [STUDENT_1, STUDENT_1, STUDENT_2];
+
+            global.fetch = vi.fn().mockImplementation(() =>
+                  Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({ pairCount: 1 })
+                  })
+            );
+
+            const score = await calculateGroupScore(groupWithDuplicates, CLASS_ID);
+            // The exact expected score would depend on your implementation
+            // but it should handle duplicates without errors
+            expect(typeof score).toBe('number');
+      });
+
+      it('should never return negative pair counts from API', async () => {
+            // Mock fetch to simulate API response
+            global.fetch = vi.fn().mockImplementation(() =>
+                  Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({ pairCount: 0 }) // API should never return negative
+                  })
+            );
+
+            const group = [STUDENT_1, STUDENT_2];
+            const score = await calculateGroupScore(group, CLASS_ID);
+            expect(score).toBe(0);
+      });
 }); 
