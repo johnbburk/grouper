@@ -4,25 +4,38 @@ import { pairingMatrix } from '$lib/server/db/schema';
 import { and, or, eq } from 'drizzle-orm';
 
 export async function GET({ params }) {
-      const { id: classId, studentId, partnerId } = params;
+      try {
+            const { id: classId, studentId, partnerId } = params;
 
-      const pairs = await db.query.pairingMatrix.findFirst({
-            where: or(
-                  and(
-                        eq(pairingMatrix.classId, parseInt(classId)),
-                        eq(pairingMatrix.studentId1, parseInt(studentId)),
-                        eq(pairingMatrix.studentId2, parseInt(partnerId))
-                  ),
-                  and(
-                        eq(pairingMatrix.classId, parseInt(classId)),
-                        eq(pairingMatrix.studentId1, parseInt(partnerId)),
-                        eq(pairingMatrix.studentId2, parseInt(studentId))
+            const pairs = await db
+                  .select()
+                  .from(pairingMatrix)
+                  .where(
+                        or(
+                              and(
+                                    eq(pairingMatrix.classId, parseInt(classId)),
+                                    eq(pairingMatrix.studentId1, parseInt(studentId)),
+                                    eq(pairingMatrix.studentId2, parseInt(partnerId))
+                              ),
+                              and(
+                                    eq(pairingMatrix.classId, parseInt(classId)),
+                                    eq(pairingMatrix.studentId1, parseInt(partnerId)),
+                                    eq(pairingMatrix.studentId2, parseInt(studentId))
+                              )
+                        )
                   )
-            )
-      });
+                  .get();
 
-      // Ensure we never return a negative value
-      const pairCount = pairs ? Math.max(0, pairs.pairCount) : 0;
+            if (!pairs) {
+                  return json({ pairCount: 0, lastPaired: null });
+            }
 
-      return json({ pairCount });
+            return json({
+                  pairCount: Math.max(0, pairs.pairCount),
+                  lastPaired: pairs.lastPaired
+            });
+      } catch (e) {
+            console.error('Error fetching pair data:', e);
+            return json({ pairCount: 0, lastPaired: null }, { status: 500 });
+      }
 } 

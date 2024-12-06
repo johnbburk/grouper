@@ -7,7 +7,10 @@ vi.mock('$lib/server/db', () => ({
             select: vi.fn(() => ({
                   from: vi.fn(() => ({
                         where: vi.fn(() => ({
-                              limit: vi.fn(() => [])
+                              get: vi.fn(() => ({
+                                    pairCount: 2,
+                                    lastPaired: new Date()
+                              }))
                         }))
                   }))
             })),
@@ -27,7 +30,19 @@ describe('Groups Save Endpoint', () => {
             vi.clearAllMocks();
       });
 
-      it('should handle saving new group pairings', async () => {
+      it('should handle saving new group pairings and calculate scores', async () => {
+            // Mock the select query for pairing data
+            const mockGet = vi.fn().mockImplementation(() => ({
+                  pairCount: 2,
+                  lastPaired: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) // 7 days ago
+            }));
+
+            const mockWhere = vi.fn(() => ({ get: mockGet }));
+            const mockFrom = vi.fn(() => ({ where: mockWhere }));
+            const mockSelect = vi.fn(() => ({ from: mockFrom }));
+
+            vi.spyOn(db, 'select').mockImplementation(mockSelect);
+
             const mockRequest = new Request('http://localhost', {
                   method: 'POST',
                   body: JSON.stringify({
@@ -37,7 +52,8 @@ describe('Groups Save Endpoint', () => {
                               students: [
                                     { id: 1, firstName: 'John', lastName: 'Doe' },
                                     { id: 2, firstName: 'Jane', lastName: 'Smith' }
-                              ]
+                              ],
+                              score: 0 // Initial score
                         }],
                         nonStandardStudentIds: []
                   })
@@ -51,6 +67,13 @@ describe('Groups Save Endpoint', () => {
             expect(response.status).toBe(200);
             const data = await response.json();
             expect(data.success).toBe(true);
+
+            // Verify that select was called
+            expect(mockSelect).toHaveBeenCalled();
+            expect(mockGet).toHaveBeenCalled();
+
+            // Verify that the group score was calculated
+            expect(data.groups[0].score).toBeGreaterThan(0);
       });
 
       it('should handle errors gracefully', async () => {
